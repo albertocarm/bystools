@@ -1,3 +1,4 @@
+
 Package: bystools
 Title: Interactive Shiny Application for Bayesian Survival Analysis Pipeline
 Version: 0.1.0
@@ -12,24 +13,28 @@ Description: Provides an interactive Shiny application for end-to-end Bayesian
     and reproducible oncology research workflows.
 License: MIT + file LICENSE
 Encoding: UTF-8
+LazyData: true
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.3
 Imports:
-    shiny,
-    bslib,
+    bayescores,
     bsicons,
-    ggplot2,
+    bslib,
     dplyr,
+    DT,
+    future,
+    ggplot2,
+    here,
+    magick,
+    promises,
+    purrr,
+    rhandsontable,
+    rstan,
+    shiny,
     stringr,
+    SurvdigitizeR,
     survival,
     survminer,
-    magick,
     tesseract,
-    writexl,
-    DT,
-    rstan,
-    promises,
-    future,
-    bayescores
-Suggests:
-    SurvdigitizeR
+    tibble,
+    writexl
