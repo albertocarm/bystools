@@ -13,10 +13,12 @@ A Shiny application object.
 Launches a Shiny application that facilitates the extraction of individual patient data (IPD)
 from Kaplan-Meier images and fits Bayesian cure models using the \code{bayescores} algorithm.
 
-The tool relies on manual digitization via \code{SurvdigitizeR} and allows for:
+The tool relies on manual digitization via \code{SurvdigitizeR} OR automated extraction via Google Opal (Experimental),
+and allows for:
 \itemize{
 \item Image pre-processing (brightness, contrast, borders) to improve visibility.
 \item Manual point extraction (point-and-click).
+\item Google Opal vector import.
 \item Interactive risk table editing.
 \item Bayesian model fitting (standard or historical priors).
 \item Comprehensive diagnostics and plotting (densities, survival curves, MCMC draws).

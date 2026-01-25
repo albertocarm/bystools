@@ -44,4 +44,4 @@ To launch the interactive application, simply load the library and run the main 
 library(bystools)
 
 # Launch the dashboard
-bystools()
+km2bayes()

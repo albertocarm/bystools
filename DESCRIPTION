@@ -1,4 +1,3 @@
-
 Package: bystools
 Title: Interactive Shiny Application for Bayesian Survival Analysis Pipeline
 Version: 0.1.0
@@ -18,23 +17,24 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.3
 Imports:
     bayescores,
-    bsicons,
     bslib,
     dplyr,
     DT,
+    flexsurv,
+    flexsurvcure,
     future,
     ggplot2,
+    graphics,
     here,
     magick,
-    promises,
     purrr,
     rhandsontable,
     rstan,
     shiny,
+    stats,
     stringr,
     SurvdigitizeR,
     survival,
     survminer,
-    tesseract,
     tibble,
     writexl
