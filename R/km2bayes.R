@@ -45,7 +45,7 @@
 #' @importFrom stats median coef cor
 #'
 #' @export
-km2bayes <- function() {
+km2bayes23 <- function() {
 
   # Increase upload size
   options(shiny.maxRequestSize = 30*1024^2)
@@ -496,10 +496,20 @@ server <- function(input, output, session) {
   }
 
   # 2. Digitization
+  # FIX 1: Added shiny::req() to validate ALL numeric inputs BEFORE using them
+  # FIX 2: Changed notification to duration=NULL so it persists
   shiny::observeEvent(input$run_manual_dig, {
     shiny::req(vals$original_img_path)
+    # FIX: Validate all numeric inputs before proceeding
+    shiny::req(input$man_x_start, input$man_x_end, input$man_x_inc)
+    shiny::req(input$man_y_start, input$man_y_end, input$man_y_inc)
+    shiny::req(input$man_num_curves)
+    shiny::req(input$man_x_inc > 0)  # Prevent division by zero or negative increment
+    shiny::req(input$man_y_inc > 0)  # Prevent division by zero or negative increment
+
     vals$mode <- "manual"
-    shiny::showNotification("Starting...", type="message")
+    # FIX: Persistent notification
+    id_dig <- shiny::showNotification("Starting digitization... Please wait.", type="message", duration=NULL)
     if(is.null(vals$risk_table_editable)) {
       vt <- seq(input$man_x_start, input$man_x_end, by=input$man_x_inc)
       vals$risk_table_editable <- tibble::tibble(Time=as.numeric(vt), N_Risk_G1=NA_real_, N_Risk_G2=NA_real_)
@@ -519,14 +529,17 @@ server <- function(input, output, session) {
         shiny::showNotification(msg, type="message", duration=8)
       }
 
+      shiny::removeNotification(id=id_dig)
       shiny::showNotification("Digitization complete. Review Risk Table.", type="warning", duration=10)
-    }, error=function(e) shiny::showNotification(e$message, type="error"))
+    }, error=function(e) { shiny::removeNotification(id=id_dig); shiny::showNotification(e$message, type="error") })
   })
 
   # --- Opal ---
   shiny::observeEvent(input$open_opal_modal, { shiny::showModal(shiny::modalDialog(title="Google Opal", shiny::div(shiny::p("Use external link:"), shiny::a("Go to Opal", href="https://opal.google/?flow=drive:/1Nx_vaKxIgPLYisxM5xVy3WDjTb_so-fl&shared&mode=app", target="_blank", class="btn btn-outline-primary mb-3"), shiny::textAreaInput("opal_input_text", "Opal Code:", height="300px"), shiny::actionButton("process_opal", "Process", class="btn-success")), footer=shiny::modalButton("Close"))) })
   shiny::observeEvent(input$process_opal, {
     shiny::req(input$opal_input_text); txt <- input$opal_input_text
+    # FIX: Persistent notification
+    id_opal <- shiny::showNotification("Processing Opal data... Please wait.", type="message", duration=NULL)
     tryCatch({
       env <- new.env(); eval(parse(text=paste(grep("<- *c\\(|= *c\\(", strsplit(txt, "\n")[[1]], value=T), collapse="\n")), envir=env)
       getv <- function(x) { for(n in x) if(exists(n, env)) return(get(n, env)); stop() }
@@ -539,8 +552,9 @@ server <- function(input, output, session) {
       vals$manual_raw_data <- rbind(data.frame(time=a1x, survival=a1y/sc, curve=1, St=a1y/sc*100), data.frame(time=a2x, survival=a2y/sc, curve=2, St=a2y/sc*100))
       vals$mode <- "opal"
       vals$curve_mapping <- map_curves_to_risk_groups(vals$manual_raw_data, vals$risk_table_editable)
+      shiny::removeNotification(id=id_opal)
       shiny::removeModal(); shiny::showNotification("Opal data ready. Review table.", type="warning")
-    }, error=function(e) shiny::showNotification("Opal Error", type="error"))
+    }, error=function(e) { shiny::removeNotification(id=id_opal); shiny::showNotification("Opal Error", type="error") })
   })
 
   # --- Import Text ---
@@ -557,8 +571,11 @@ server <- function(input, output, session) {
     shiny::showModal(shiny::modalDialog(title = "Extraction Prompt", shiny::textAreaInput("llm_prompt_copy", label=NULL, height="150px", value="Extract the numerical data from this image into exactly 4 lines of plain text separated by line breaks: 1) Y-axis values, 2) X-axis values, 3) Top row of 'Numbers at risk' table, 4) Bottom row of 'Numbers at risk' table. Only numbers separated by spaces, no labels, commas, or additional text."), footer = shiny::modalButton("Close")))
   })
 
+  # FIX 3: Added persistent notification to process_import_text
   shiny::observeEvent(input$process_import_text, {
     shiny::req(input$import_raw_text); txt <- input$import_raw_text
+    # FIX: Persistent notification so user knows it's working
+    id_import <- shiny::showNotification("Processing imported data... Please wait.", type="message", duration=NULL)
     tryCatch({
       lns <- strsplit(txt, "\n")[[1]]; vl <- list(); for(l in lns) if(grepl("[0-9]", l)) vl[[length(vl)+1]] <- as.numeric(unlist(strsplit(trimws(l), "\\s+")))
 
@@ -605,6 +622,7 @@ server <- function(input, output, session) {
       shiny::updateNumericInput(session, "man_y_start", value=min(vy,na.rm=T)); shiny::updateNumericInput(session, "man_y_end", value=max(vy,na.rm=T))
       shiny::updateNumericInput(session, "man_y_inc", value=if(length(vy)>1) (max(vy)-min(vy))/(length(vy)-1) else 0.1)
       vals$y_axis_editable <- data.frame(Y_Values=vy)
+      shiny::removeNotification(id=id_import)
       shiny::removeModal()
       if(!is.null(vals$manual_raw_data)) {
         vals$curve_mapping <- map_curves_to_risk_groups(vals$manual_raw_data, vals$risk_table_editable)
@@ -613,7 +631,7 @@ server <- function(input, output, session) {
       } else {
         shiny::showNotification("Data imported. Digitize the image to continue.", type="warning")
       }
-    }, error=function(e) shiny::showNotification(e$message, type="error"))
+    }, error=function(e) { shiny::removeNotification(id=id_import); shiny::showNotification(e$message, type="error") })
   })
 
   output$hot_risk_table <- rhandsontable::renderRHandsontable({ shiny::req(vals$risk_table_editable); rhandsontable::rhandsontable(vals$risk_table_editable, stretchH="all", height=450) %>% rhandsontable::hot_context_menu(allowRowEdit=TRUE, allowColEdit=FALSE) })
@@ -645,7 +663,7 @@ server <- function(input, output, session) {
     Time <- N_Risk_G1 <- time_tick <- nrisk <- N_Risk_G2 <- survival <- NULL
     shiny::req(vals$risk_table_editable, vals$y_axis_editable)
     # UX FIX: persistent notification until finished
-    id_cal <- shiny::showNotification("Calculating Metrics...", type="message", duration=NULL)
+    id_cal <- shiny::showNotification("Calculating Metrics... Please wait.", type="message", duration=NULL)
 
     tryCatch({
       if(is.null(vals$manual_raw_data)) stop("Missing curve data.")
@@ -972,7 +990,7 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$run_model, {
     shiny::req(vals$final_ipd)
     # UX FIX: Persistent notification
-    id_mod <- shiny::showNotification("Compiling and fitting model...", type = "message", duration = NULL)
+    id_mod <- shiny::showNotification("Compiling and fitting model... This may take several minutes.", type = "message", duration = NULL)
     tryCatch({
       hist_arg <- if (input$use_historical) {
         paste0("TRUE, params=c(", input$hist_mean, ",", input$hist_sd, ")")
