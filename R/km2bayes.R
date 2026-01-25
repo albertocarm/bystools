@@ -50,8 +50,6 @@ km2bayes <- function() {
   # Increase upload size
   options(shiny.maxRequestSize = 30*1024^2)
 
-  # Avoid global variable notes within the package scope
-  utils::globalVariables(c("Time", "N_Risk_G1", "N_Risk_G2", "time_tick", "nrisk", "time", "survival", "curve", "status", "arm", "Metrica", "Valor"))
 
   # ==============================================================================
   # 3. USER INTERFACE (UI)
