@@ -45,7 +45,7 @@
 #' @importFrom stats median coef cor
 #'
 #' @export
-km2bayes23 <- function() {
+km2bayes <- function() {
 
   # Increase upload size
   options(shiny.maxRequestSize = 30*1024^2)
@@ -506,7 +506,7 @@ server <- function(input, output, session) {
     shiny::req(input$man_num_curves)
     shiny::req(input$man_x_inc > 0)  # Prevent division by zero or negative increment
     shiny::req(input$man_y_inc > 0)  # Prevent division by zero or negative increment
-
+    
     vals$mode <- "manual"
     # FIX: Persistent notification
     id_dig <- shiny::showNotification("Starting digitization... Please wait.", type="message", duration=NULL)
