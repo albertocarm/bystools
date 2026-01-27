@@ -217,7 +217,7 @@ km2bayes <- function() {
 ui <- shiny::tagList(
   shiny::tags$head(shiny::tags$style(shiny::HTML(css_blue_metal))),
   bslib::page_sidebar(
-    title = "KM2Algo: Forensic & Metrics",
+    title = "KM2bayes: Instability metrics",
     theme = bslib::bs_theme(version = 5, bootswatch = "flatly", bg = "#F4F7FC", fg = "#0B1F3A", primary = "#1E5AA8"),
 
     sidebar = bslib::sidebar(
@@ -228,7 +228,7 @@ ui <- shiny::tagList(
       # SIDEBAR: EXTRACTION
       # ==============================================================================
       shiny::conditionalPanel(
-        condition = "input.main_nav === 'Data Extraction' || input.main_nav === 'Forensic Analysis'",
+        condition = "input.main_nav === 'Data Extraction' || input.main_nav === 'Stability metrics'",
         shiny::h5("Extraction Mode", class = "mb-3 text-primary"),
 
         # GEMINI PREPROCESSING BUTTON (MOVED UP)
@@ -329,10 +329,10 @@ ui <- shiny::tagList(
       # ==============================================================================
       # TAB 2: FORENSIC ANALYSIS
       # ==============================================================================
-      bslib::nav_panel("Forensic Analysis",
+      bslib::nav_panel("Stability metrics",
                        shiny::div(class="container-fluid py-3",
                                   bslib::card(
-                                    bslib::card_header("Forensic Metrics & Instability Check"),
+                                    bslib::card_header("Instability Check"),
                                     shiny::div(class = "metrics-table-container", style = "overflow-x: auto; max-height: 600px; overflow-y: auto;",
                                                shiny::div(class = "d-flex justify-content-center gap-3 mb-2",
                                                           shiny::span(style="background: linear-gradient(90deg, #E3F2FD, #BBDEFB); padding: 4px 12px; border-radius: 4px; font-weight: 600; border-left: 4px solid #1E5AA8;", "Sample Info"),
@@ -346,7 +346,7 @@ ui <- shiny::tagList(
                                   bslib::card(
                                     bslib::card_header("Interpretation Suggestions"),
                                     shiny::div(style = "background-color: #FFF; padding: 15px; border-left: 5px solid #FF9800;",
-                                               shiny::uiOutput("forensic_interpretation_ui")
+                                               shiny::uiOutput("Interpretation_ui")
                                     )
                                   ),
 
@@ -506,7 +506,7 @@ server <- function(input, output, session) {
     shiny::req(input$man_num_curves)
     shiny::req(input$man_x_inc > 0)  # Prevent division by zero or negative increment
     shiny::req(input$man_y_inc > 0)  # Prevent division by zero or negative increment
-    
+
     vals$mode <- "manual"
     # FIX: Persistent notification
     id_dig <- shiny::showNotification("Starting digitization... Please wait.", type="message", duration=NULL)
