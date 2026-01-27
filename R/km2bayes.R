@@ -406,7 +406,10 @@ ui <- shiny::tagList(
               bslib::nav_panel(
                 "Model Fit",
                 shiny::div(class = "text-end mb-2", shiny::downloadButton("dl_plot_fit", "PDF", class = "btn-xs btn-outline-secondary")),
-                shiny::plotOutput("plot_model_fit", height = "620px")
+                shiny::plotOutput("plot_model_fit", height = "620px"),
+                # Added Legend text here
+                shiny::div(style="text-align: center; color: #666; font-size: 0.9rem; margin-top: 10px;",
+                           "Black solid line: Kaplan-Meier | Red dashed line: Bayesian Model Prediction")
               ),
               bslib::nav_panel(
                 "Diagnostics",
@@ -993,7 +996,9 @@ server <- function(input, output, session) {
           "<ul>",
           "<li>Simplify the model to a standard AFT (Accelerated Failure Time) formulation.</li>",
           "<li>Assume a single mechanism (time extension) to restore convergence and interpretability.</li>",
-          "<li><span style='color: #D32F2F;'><b>Action:</b> Set 'Tail Assumption' to <b>'biologically_null'</b> in Bayesian settings.</span></li>",
+          # UPDATED TEXT START
+          "<li><span style='color: #D32F2F;'><b>Action:</b> Set 'Tail Assumption' to either <b>'biologically_null'</b> or <b>‘immature_skeptical’</b> in the Bayesian Model settings. Choose <b>‘biologically_null’</b> in scenarios such as chemotherapy for incurable cancer where it is well established that treatment predominantly extends life without producing cures. Choose <b>‘immature_skeptical’</b> in scenarios such as adjuvant therapy with short follow-up where it is expected that treatment could produce cures but the data are insufficient (e.g., due to short follow-up time) to determine whether a therapy can produce cures.</span></li>",
+          # UPDATED TEXT END
           "</ul>"
         )
       }
