@@ -136,7 +136,7 @@ km2bayes <- function() {
     color: #0B1F3A;
   }
 
-/* FIX: text visible in selectInput (cure_belief) inside sidebar */
+/* FIX: text visible in selectInput (tail_assumption) inside sidebar */
 .bslib-sidebar-layout > .sidebar .form-select,
 .sidebar .form-select{
   background-color: #FFFFFF !important;
@@ -248,7 +248,7 @@ ui <- shiny::tagList(
 
           bslib::accordion(open=FALSE, bslib::accordion_panel("Image Settings",
                                                               shiny::numericInput("man_border","Border (px)",0,min=0,step=10),
-                                                              shiny::sliderInput("man_brightness","Brightness (%)",50,150,100,5),
+                                                              shiny::sliderInput("man_brightness","Brightness (%)",50,150,130,5),
                                                               shiny::sliderInput("man_contrast","Contrast (%)",50,150,100,5),
                                                               shiny::numericInput("man_bg_light","BG Lightness",0.3,step=0.1),
                                                               # REMOVED Text Sens (unused)
@@ -279,9 +279,9 @@ ui <- shiny::tagList(
         shiny::hr(),
         shiny::checkboxInput("shared_shape", "Shared Shape", value = TRUE),
         shiny::selectInput(
-          "cure_belief", "Cure Belief:",
-          choices = c("unknown", "unlikely", "very_unlikely", "optimistic", "mild_optimistic"),
-          selected = "unknown"
+          "tail_assumption", "Tail Assumption:",
+          choices = c("neutral", "immature_skeptical", "biologically_null", "supportive", "optimistic"),
+          selected = "neutral"
         ),
         shiny::checkboxInput("use_historical", "Use Historical Prior", value = FALSE),
         shiny::conditionalPanel(
@@ -331,6 +331,24 @@ ui <- shiny::tagList(
       # ==============================================================================
       bslib::nav_panel("Stability metrics",
                        shiny::div(class="container-fluid py-3",
+                                  # INSTRUCTIONS BOX
+                                  bslib::card(
+                                    bslib::card_header("Instructions for Bayesian Model Specification"),
+                                    shiny::div(style = "background-color: #FFF8E1; padding: 15px; border-left: 5px solid #FFC107;",
+                                               shiny::tags$ol(
+                                                 shiny::tags$li(shiny::strong("Check Digitization Accuracy:"), " Review the calibration plot below. If the Mixture Cure model (dashed red) deviates substantially from the Kaplan-Meier curve (solid black), the digitization may need refinement."),
+                                                 # UPDATED TEXT HERE: TAIL ASSUMPTION
+                                                 shiny::tags$li(shiny::strong("Check Stability Metrics:"), " Use the Instability Check table and Interpretation Suggestions to decide on 'Tail Assumption' setting in the Bayesian model (e.g., 'immature_skeptical' for AFT-only models)."),
+                                                 # UPDATED TEXT HERE: THRESHOLD AND MAE
+                                                 shiny::tags$li(shiny::strong("Check Calibration for Shared Shape:"), " If the MAE (Mean Absolute Error) between arms differs substantially (> 3.0x), consider ", shiny::strong("unchecking 'Shared Shape'"), " in the Bayesian Model settings to allow each arm its own shape parameter.")
+                                               )
+                                    )
+                                  ),
+
+                                  # CALIBRATION PLOT (MOVED UP)
+                                  bslib::card(bslib::card_header("Calibration: KM vs Mixture Cure"),
+                                              shiny::plotOutput("calib_plot_output", height="450px")),
+
                                   bslib::card(
                                     bslib::card_header("Instability Check"),
                                     shiny::div(class = "metrics-table-container", style = "overflow-x: auto; max-height: 600px; overflow-y: auto;",
@@ -341,6 +359,9 @@ ui <- shiny::tagList(
                                                ),
                                                shiny::tableOutput("metrics_summary_table"))
                                   ),
+
+                                  # MOVED WARNING UI HERE
+                                  shiny::div(class = "mb-3", shiny::uiOutput("calibration_warning_ui")),
 
                                   # NEW INTERPRETATION LOGIC SECTION
                                   bslib::card(
@@ -353,8 +374,7 @@ ui <- shiny::tagList(
                                   bslib::layout_columns(col_widths=c(6,6),
                                                         bslib::card(bslib::card_header("Mixture Cure Model Details"), shiny::div(style = "overflow-y: auto; max-height: 600px;", shiny::verbatimTextOutput("cure_surv_output"))),
                                                         bslib::card(bslib::card_header("Kaplan-Meier / Cox Summary"), shiny::div(style = "overflow-y: auto; max-height: 600px;", shiny::verbatimTextOutput("survfit_output")))
-                                  ),
-                                  bslib::card(bslib::card_header("Calibration: KM vs Mixture Cure"), shiny::plotOutput("calib_plot_output", height="450px"))
+                                  )
                        )
       ),
 
@@ -429,7 +449,8 @@ server <- function(input, output, session) {
     cure_model_obj=NULL, master_data_loaded=NULL, rmst_details=NULL,
     curve_mapping=NULL, calib_data=NULL,
     model_fit_obj=NULL, code_text=NULL,
-    interpretation_html=NULL
+    interpretation_html=NULL,
+    calibration_warning_html=NULL
   )
 
   # ==============================================================================
@@ -452,7 +473,7 @@ server <- function(input, output, session) {
   })
 
   shiny::observeEvent(input$copy_gemini_prompt, {
-    prompt_text <- "Process this clinical trial plot image to perform two specific tasks. First, create a modified version of the image that cleans the plot. Preserve strictly the main data curves (including step-lines and censorship ticks), the X and Y axis lines, and the numeric values (tick labels) on both axes. Remove completely all text content (including titles, axis names/labels, legends, hazard ratios, and p-values), the entire 'Numbers at risk' table below the X-axis, and any annotation markers such as arrows, brackets, or dashed/solid reference lines indicating medians or milestones that are not part of the main data curves. The final visual output should be a clean plot showing only the axis geometry, the axis numbers, and the data curves on a white background. Second, extract the numerical data from the original image into exactly 4 lines of plain text separated by line breaks. The format must be: Line 1 Y-axis values, Line 2 X-axis values, Line 3 Top row of the 'Numbers at risk' table, and Line 4 Bottom row of the 'Numbers at risk' table. Output ONLY numbers separated by spaces for each line. Do not include labels, commas, or any additional text."
+    prompt_text <- "Process this clinical trial plot image to perform two specific tasks. First, create a modified version of the image that cleans the plot. Preserve strictly the main data curves (including step-lines and censorship ticks), the X and Y axis lines, and the numeric values (tick labels) on both axes. Change the curve colors to dark red and dark blue for improved contrast. Remove completely all text content (including titles, axis names/labels, legends, hazard ratios, and p-values), the entire 'Numbers at risk' table below the X-axis, and any annotation markers such as arrows, brackets, or dashed/solid reference lines indicating medians or milestones that are not part of the main data curves. The final visual output should be a clean plot showing only the axis geometry, the axis numbers, and the data curves on a white background. Second, extract the numerical data from the original image into exactly 4 lines of plain text separated by line breaks. The format must be: Line 1 Y-axis values, Line 2 X-axis values, Line 3 Top row of the 'Numbers at risk' table, and Line 4 Bottom row of the 'Numbers at risk' table. Output ONLY numbers separated by spaces for each line. Do not include labels, commas, or any additional text."
 
     shiny::showModal(shiny::modalDialog(
       title = "Gemini Prompt",
@@ -818,6 +839,9 @@ server <- function(input, output, session) {
       rate_e <- if(!is.na(theta_logit) && !is.na(p_arm[1])) plogis(theta_logit + p_arm[1]) else NA
 
       mae_cure <- NA
+      mae_arm1 <- NA
+      mae_arm2 <- NA
+      mae_ratio <- NA
       tryCatch({
         arms_levels <- levels(factor(data$arm))
         arm_vals <- c(arms_levels[1], arms_levels[2])
@@ -841,18 +865,46 @@ server <- function(input, output, session) {
         } else {
           CURE_S <- matrix(NA, nrow = length(times_grid), ncol = 2)
         }
+        mae_arm1 <- mean(abs(CURE_S[,1] - KM_S[,1]), na.rm = TRUE)
+        mae_arm2 <- mean(abs(CURE_S[,2] - KM_S[,2]), na.rm = TRUE)
         mae_cure <- mean(abs(CURE_S - KM_S), na.rm = TRUE)
+
+        if(!is.na(mae_arm1) && !is.na(mae_arm2) && mae_arm1 > 0 && mae_arm2 > 0) {
+          mae_ratio <- max(mae_arm1, mae_arm2) / min(mae_arm1, mae_arm2)
+        }
+
         vals$calib_data <- list(
           times = times_grid,
           km_fit = km_fit,
           KM_S = KM_S,
           CURE_S = CURE_S,
           tau = tau,
-          arm_vals = arm_vals
+          arm_vals = arm_vals,
+          mae_arm1 = mae_arm1,
+          mae_arm2 = mae_arm2
         )
       }, error = function(e) {
         mae_cure <<- NA
+        mae_ratio <<- NA
       })
+
+      # CALIBRATION WARNING FOR SHARED SHAPE
+      vals$calibration_warning_html <- NULL
+      if(!is.na(mae_ratio)) {
+        # CHANGED RATIO TO 3.0 AS REQUESTED
+        if(mae_ratio > 3.0) {
+          vals$calibration_warning_html <- shiny::HTML(paste0(
+            "<div style='background-color: #FFEBEE; padding: 12px; border-left: 5px solid #D32F2F; margin-bottom: 10px;'>",
+            "<strong style='color: #D32F2F;'>&#9888; Calibration Warning:</strong> ",
+            "The Mean Absolute Error (MAE) differs substantially between arms (MAE Arm1 = ", round(mae_arm1, 4),
+            ", MAE Arm2 = ", round(mae_arm2, 4), ", ratio = ", round(mae_ratio, 2), "x). ",
+            "This suggests the Weibull shape parameter may differ between treatment groups. ",
+            "<strong>Recommendation:</strong> Consider <strong>unchecking 'Shared Shape'</strong> in the Bayesian Model settings ",
+            "to allow each arm to have its own shape parameter, which may improve model fit.",
+            "</div>"
+          ))
+        }
+      }
 
       fr <- data.frame(
         N_Total = nrow(data), N_Ctrl = n_ctrl, N_Exp = n_exp,
@@ -865,7 +917,10 @@ server <- function(input, output, session) {
         Kendall_Correlation = kendall,
         Maturity_Index = maturity_idx,
         Median_FollowUp = median_follow_up,
-        Median_Surv_Ctrl = median_surv_ctrl
+        Median_Surv_Ctrl = median_surv_ctrl,
+        MAE_Arm1 = if(!is.na(mae_arm1)) mae_arm1 else NA,
+        MAE_Arm2 = if(!is.na(mae_arm2)) mae_arm2 else NA,
+        MAE_Ratio = if(!is.na(mae_ratio)) mae_ratio else NA
       )
 
       vals$analysis_results_full <- fr
@@ -879,13 +934,13 @@ server <- function(input, output, session) {
       b1_m <- c("N_Total", "N_Ctrl", "N_Exp", "Tau_Common")
       b1_v <- vals_vec[b1_m]
 
-      # Block 2: Events
-      b2_m <- c("Events_Total", "Censored_Total", "Censoring_Rate_Global", "Events_Ctrl")
+      # Block 2: Events (Added MAE_Arm1/2 here as requested "middle table")
+      b2_m <- c("Events_Total", "Censored_Total", "Censoring_Rate_Global", "Events_Ctrl", "MAE_Arm1", "MAE_Arm2")
       b2_v <- vals_vec[b2_m]
 
-      # Block 3: Instability Metrics (Updated with correlations and medians)
+      # Block 3: Instability Metrics (Added MAE_Ratio here)
       b3_m <- c("Pearson_Correlation", "Spearman_Correlation", "Kendall_Correlation",
-                "Maturity_Index", "Median_FollowUp", "Median_Surv_Ctrl")
+                "Maturity_Index", "Median_FollowUp", "Median_Surv_Ctrl", "MAE_Ratio")
       b3_v <- vals_vec[b3_m]
 
       # Pad to ensure same length
@@ -897,10 +952,10 @@ server <- function(input, output, session) {
         Metric_2 = pad(names(b2_v), len), Value_2 = pad(unname(b2_v), len),
         Metric_3 = pad(names(b3_v), len), Value_3 = pad(unname(b3_v), len)
       )
-      colnames(df_view) <- c("Sample Info", "Value", "Events", "Value", "Instability Metrics", "Value")
+      colnames(df_view) <- c("Sample Info", "Value", "Events / Calib.", "Value", "Instability Metrics", "Value")
       vals$analysis_summary_view <- df_view
 
-      # --- GENERATE INTERPRETATION HTML ---
+      # --- GENERATE INTERPRETATION HTML (5 DECISION SCENARIOS) ---
       m_val <- maturity_idx
       rho_val <- abs(pearson)
       if(is.na(rho_val)) rho_val <- 0
@@ -917,52 +972,123 @@ server <- function(input, output, session) {
         if(mean(s_start) - mean(s_end) > 0.05) plateau_visual_stable <- FALSE
       }, error=function(e) NULL)
 
-      interp_status <- ""
-      interp_rec <- ""
-      model_suggestion <- ""
+      interp_scenario <- ""
+      interp_criteria <- ""
+      interp_interpretation <- ""
+      interp_protocol <- ""
 
-      if(m_val < 2.0) {
-        if(rho_val < 0.4) {
-          interp_status <- "Artifactual Stability (High False Positive Risk)"
-          interp_rec <- "Suggestion: Data presents characteristics of artifactual stability. Low correlation in immature data may be misleading. It is recommended to apply a Skeptical Prior on the OR to weight the analysis towards an AFT model interpretation if evidence is weak."
-          if(!plateau_visual_stable) model_suggestion <- "Consider setting 'Cure Belief' to 'unlikely' (AFT model)."
-        } else if(rho_val >= 0.7) {
-          interp_status <- "Structural Uncertainty"
-          interp_rec <- "Suggestion: The model reflects uncertainty in separating Cure from Delay (high correlation). This 'Structural Uncertainty' is expected. Trust the uncertainty and consider reporting the Time Ratio (TR)."
-          model_suggestion <- "Consider setting 'Cure Belief' to 'unlikely' (AFT model)."
-        } else {
-          interp_status <- "Ambiguous Immature"
-          interp_rec <- "Suggestion: Data is immature and model stability is inconclusive. Interpret with caution."
-          if(!plateau_visual_stable) model_suggestion <- "Consider setting 'Cure Belief' to 'unlikely' (AFT model)."
-        }
-      } else {
-        if(rho_val < 0.4) {
-          interp_status <- "Confirmed Cure"
-          interp_rec <- "Suggestion: Valid Benefit. The plateau appears structurally identified. Reporting the Cure OR is supported by the data."
-        } else {
-          interp_status <- "Weak Signal / Dilution"
-          interp_rec <- "Suggestion: Inconclusive or Negative. There is likely no true cure signal; the model may be struggling to fit noise."
-        }
+      # SCENARIO 3: Structural Non-Identifiability (check first - critical)
+      # UPDATED THRESHOLD TO 0.7
+      if(rho_val > 0.7) {
+        interp_scenario <- "Scenario 3: Structural Non-Identifiability (Model Degeneracy)"
+        interp_criteria <- paste0(
+          "<ul>",
+          "<li><b>Parametric Stability:</b> Critical Instability (|&rho;| = ", round(rho_val, 3), " > 0.7)</li>",
+          "<li><b>Inference Quality:</b> Likely divergent chains, infinite/extreme Credible Intervals, or high R-hat values.</li>",
+          "</ul>"
+        )
+        interp_interpretation <- "The likelihood surface contains a ridge where the Cure OR and TR are interchangeable (parameter collinearity). The data supports multiple conflicting explanations with equal probability."
+        interp_protocol <- paste0(
+          "<b>Protocol: Parsimonious Model Selection</b>",
+          "<ul>",
+          "<li>Simplify the model to a standard AFT (Accelerated Failure Time) formulation.</li>",
+          "<li>Assume a single mechanism (time extension) to restore convergence and interpretability.</li>",
+          "<li><span style='color: #D32F2F;'><b>Action:</b> Set 'Tail Assumption' to <b>'biologically_null'</b> in Bayesian settings.</span></li>",
+          "</ul>"
+        )
       }
-
-      # If specific criteria met, force suggestion
-      if(m_val < 2.0 || rho_val >= 0.7 || !plateau_visual_stable) {
-        model_suggestion <- "<b>Modeling Strategy Suggestion:</b> Data lacks sufficient stability for a flexible cure model (due to Immaturity, Ambiguity, or lack of visual plateau). <br>Consider setting 'Cure Belief' to <b>'unlikely'</b> (which converts the model to an AFT approach) to reduce overfitting."
+      # SCENARIO 1: Artifactual Stability
+      else if(m_val < 2.5 && rho_val < 0.4) {
+        interp_scenario <- "Scenario 1: Artifactual Stability (Censoring-Induced Pseudo-Plateau)"
+        interp_criteria <- paste0(
+          "<ul>",
+          "<li><b>Data Maturity:</b> Low (M = ", round(m_val, 2), " < 2.5)</li>",
+          "<li><b>Parametric Stability:</b> High (|&rho;| = ", round(rho_val, 3), " < 0.4)</li>",
+          "<li><b>Signal:</b> Apparent Cure signal may be present.</li>",
+          "</ul>"
+        )
+        interp_interpretation <- "The apparent stability of the cure parameter is likely an artifact of the follow-up cutoff ('administrative censoring wall') rather than a biological plateau."
+        interp_protocol <- paste0(
+          "<b>Protocol: Regularized AFT Reduction</b>",
+          "<ul>",
+          "<li>Apply a Skeptical Prior (e.g., Laplacian centered at 0) to the cure parameter.</li>",
+          "<li>If the cure signal vanishes under regularization, reclassify the benefit as Pure Survival Time Prolongation (TR).</li>",
+          "<li><span style='color: #E65100;'><b>Action:</b> Consider setting 'Tail Assumption' to <b>'immature_skeptical'</b>.</span></li>",
+          "</ul>"
+        )
+      }
+      # SCENARIO 4: Validated Curative Signal
+      else if(m_val >= 3.0 && rho_val < 0.4 && plateau_visual_stable) {
+        interp_scenario <- "Scenario 4: Validated Curative Signal (True Plateau)"
+        interp_criteria <- paste0(
+          "<ul>",
+          "<li><b>Data Maturity:</b> High (M = ", round(m_val, 2), " &ge; 3.0). Follow-up extends well into the plateau phase.</li>",
+          "<li><b>Parametric Stability:</b> High (|&rho;| = ", round(rho_val, 3), " < 0.4)</li>",
+          "<li><b>Visual Confirmation:</b> Plateau appears stable (L-shaped curve).</li>",
+          "</ul>"
+        )
+        interp_interpretation <- "The model has successfully identified a subpopulation with near-zero hazard, distinct from the time-to-event process of the uncured population."
+        interp_protocol <- paste0(
+          "<b>Protocol: Full Mixture Model Reporting</b>",
+          "<ul>",
+          "<li>Report both efficacy dimensions with high confidence.</li>",
+          "<li>Use the <b>Cure Odds Ratio (OR)</b> as the primary endpoint for long-term efficacy.</li>",
+          "<li>Use the <b>Time Ratio (TR)</b> to quantify benefit for the non-cured population.</li>",
+          "<li><span style='color: #2E7D32;'><b>Action:</b> 'Tail Assumption' can remain <b>'neutral'</b> or <b>'supportive'</b>.</span></li>",
+          "</ul>"
+        )
+      }
+      # SCENARIO 2: Confirmed Non-Curative Delay
+      else if(m_val > 3.0 && !plateau_visual_stable) {
+        interp_scenario <- "Scenario 2: Confirmed Non-Curative Delay (Pure TR Effect)"
+        interp_criteria <- paste0(
+          "<ul>",
+          "<li><b>Data Maturity:</b> High (M = ", round(m_val, 2), " > 3.0)</li>",
+          "<li><b>Visual Inspection:</b> Kaplan-Meier curves decline continuously (no visual plateau).</li>",
+          "<li><b>Signal:</b> Cure OR is likely non-significant or negligible.</li>",
+          "</ul>"
+        )
+        interp_interpretation <- "The treatment effect is identified as a pure temporal shift rather than a change in the susceptible fraction. The initial separation of curves has been 'diluted' over time."
+        interp_protocol <- paste0(
+          "<b>Protocol: Standard AFT Reporting</b>",
+          "<ul>",
+          "<li>Do not force regularization.</li>",
+          "<li>Base inference exclusively on the <b>Time Ratio (TR)</b> parameter.</li>",
+          "<li>Report: 'The therapy extends median survival by X%, with no evidence of a cured fraction.'</li>",
+          "<li><span style='color: #1565C0;'><b>Action:</b> Set 'Tail Assumption' to <b>'immature_skeptical'</b>.</span></li>",
+          "</ul>"
+        )
+      }
+      # SCENARIO 5: Indeterminate Efficacy Signal (default/intermediate)
+      else {
+        interp_scenario <- "Scenario 5: Indeterminate Efficacy Signal (Provisional)"
+        interp_criteria <- paste0(
+          "<ul>",
+          "<li><b>Data Maturity:</b> Intermediate (M = ", round(m_val, 2), "). Follow-up is ongoing; the 'tail' is forming but not fully stabilized.</li>",
+          "<li><b>Parametric Stability:</b> Moderate Ambiguity (|&rho;| = ", round(rho_val, 3), ").</li>",
+          "<li><b>Signal:</b> The Cure OR may suggest benefit, but Credible Intervals are likely wide or borderline.</li>",
+          "</ul>"
+        )
+        interp_interpretation <- "The likelihood surface allows for a trade-off between a 'larger cure' and a 'longer delay.' While a benefit is likely present, the specific mechanism (Cure vs. Time) cannot be strictly resolved without further follow-up."
+        interp_protocol <- paste0(
+          "<b>Protocol: Provisional Reporting (Low Confidence)</b>",
+          "<ul>",
+          "<li>Report the estimated parameters but append a mandatory <b>'Provisional'</b> caveat.</li>",
+          "<li>Explicitly state that the decomposition of benefit is contingent on future data maturation.</li>",
+          "<li>Prioritize the <b>Time Ratio (TR)</b> as the safer metric until M &ge; 3.0.</li>",
+          "<li><span style='color: #FF6F00;'><b>Action:</b> Consider <b>'immature_skeptical'</b> for conservative inference, or <b>'neutral'</b> with caution.</span></li>",
+          "</ul>"
+        )
       }
 
       html_content <- paste0(
-        "<h5>Interpretation Suggestions</h5>",
-        "<p><b>Analysis Criteria Used:</b></p>",
-        "<ul>",
-        "<li><b>Maturity Index (M):</b> Calculated as Median Follow-up / Control Median Survival. (Values < 2.0 suggest immaturity).</li>",
-        "<li><b>Parametric Instability (rho):</b> Pearson correlation between Log(OR) and Log(TR). (Values > 0.7 suggest instability).</li>",
-        "<li><b>Plateau Stability:</b> Checked from Tau (", round(tau,1), ") backwards to ", round(0.85*tau,1), ".</li>",
-        "</ul>",
-        "<p><b>Computed Values:</b> M = ", round(m_val, 2), ", rho = ", round(rho_val, 2), ".</p>",
+        "<h5>", interp_scenario, "</h5>",
         "<hr>",
-        "<p><b>Diagnosis:</b> ", interp_status, "</p>",
-        "<p><b>Recommendation:</b> ", interp_rec, "</p>",
-        if(model_suggestion != "") paste0("<hr><p style='color: #E65100;'>", model_suggestion, "</p>") else ""
+        "<p><b>Diagnostic Criteria:</b></p>",
+        interp_criteria,
+        "<p><b>Interpretation:</b> ", interp_interpretation, "</p>",
+        "<hr>",
+        interp_protocol
       )
       vals$interpretation_html <- shiny::HTML(html_content)
 
@@ -971,9 +1097,13 @@ server <- function(input, output, session) {
     }, error = function(e) { shiny::removeNotification(id=id_cal); shiny::showNotification(paste("Error:", e$message), type="error") })
   }
 
-  output$forensic_interpretation_ui <- shiny::renderUI({
+  output$Interpretation_ui <- shiny::renderUI({
     shiny::req(vals$interpretation_html)
     vals$interpretation_html
+  })
+
+  output$calibration_warning_ui <- shiny::renderUI({
+    vals$calibration_warning_html
   })
 
   shiny::observeEvent(input$apply_edits, {
@@ -995,7 +1125,7 @@ server <- function(input, output, session) {
       hist_arg <- if (input$use_historical) {
         paste0("TRUE, params=c(", input$hist_mean, ",", input$hist_sd, ")")
       } else {
-        paste0("FALSE, belief='", input$cure_belief, "'")
+        paste0("FALSE, tail_assumption='", input$tail_assumption, "'") # Fixed typo: changed belief to tail_assumption
       }
       vals$code_text <- paste0(
         "library(bayescores)\nlibrary(rstan)\nipd <- readRDS('path/to/ipd.rds')\n",
@@ -1015,7 +1145,7 @@ server <- function(input, output, session) {
         shared_shape = input$shared_shape,
         use_historical_prior = input$use_historical,
         historical_prior_params = c(input$hist_mean, input$hist_sd),
-        cure_belief = input$cure_belief
+        tail_assumption = input$tail_assumption
       )
       shiny::removeNotification(id = id_mod)
       shiny::showNotification("Model fitted!", type = "message")
