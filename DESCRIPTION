@@ -40,3 +40,5 @@ Imports:
     writexl
 Remotes:
     Pechli-Lab/SurvdigitizeR
+    albertocarm/BayeScores
+
