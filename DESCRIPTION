@@ -39,6 +39,6 @@ Imports:
     tibble,
     writexl
 Remotes:
-    Pechli-Lab/SurvdigitizeR
+    Pechli-Lab/SurvdigitizeR,
     albertocarm/BayeScores
 
