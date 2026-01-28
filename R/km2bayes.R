@@ -39,10 +39,11 @@
 #' @import writexl
 #' @import rhandsontable
 #' @importFrom here here
-#' @importFrom utils write.csv head globalVariables
+#' @importFrom utils write.csv head globalVariables read.csv
 #' @importFrom grDevices dev.off pdf
 #' @importFrom graphics par rect
 #' @importFrom stats median coef cor
+#' @importFrom tools file_ext
 #'
 #' @export
 km2bayes <- function() {
@@ -234,7 +235,12 @@ ui <- shiny::tagList(
         # GEMINI PREPROCESSING BUTTON (MOVED UP)
         shiny::actionButton("open_gemini_modal", "Preprocess with Gemini", class = "btn-gemini w-100 mb-2", icon = shiny::icon("wand-magic-sparkles")),
 
-        shiny::fileInput("img_upload", "1. Upload KM Image", accept = c("image/png", "image/jpeg", ".jpg", ".png")),
+        # UPDATE: LABEL AND INFO BUTTON
+        shiny::div(class="d-flex align-items-center justify-content-between mb-1",
+                   shiny::tags$label("1. Upload KM Image or Dataset", class="form-label", style="font-weight: 700;"),
+                   shiny::actionLink("upload_info_btn", label=NULL, icon=shiny::icon("info-circle"))
+        ),
+        shiny::fileInput("img_upload", label=NULL, accept = c("image/png", "image/jpeg", ".jpg", ".png", ".rds", ".rda", ".xlsx", ".csv")),
 
         # STEP 2: IMPORT
         shiny::actionButton("open_import_data", "2. Import Data (Text/Opal)", class = "btn-info w-100 mb-3", icon = shiny::icon("file-import")),
@@ -487,10 +493,106 @@ server <- function(input, output, session) {
     ))
   })
 
-  # 1. Image & Magick
-  shiny::observeEvent(input$img_upload, { shiny::req(input$img_upload); vals$original_img_path <- input$img_upload$datapath; vals$processed_img_path <- input$img_upload$datapath })
+  # --- INFO UPLOAD MODAL ---
+  shiny::observeEvent(input$upload_info_btn, {
+    shiny::showModal(shiny::modalDialog(
+      title = "File Format Requirements",
+      shiny::tags$ul(
+        shiny::tags$li(shiny::strong("Image:"), " Clean plot with axes, curves, and numbers. No titles or legends inside the plot area if possible."),
+        shiny::tags$li(shiny::strong("Dataset:"), " Files: .xlsx, .csv, .rds, .rda"),
+        shiny::tags$li("Must contain 3 columns:",
+                       shiny::tags$ul(
+                         shiny::tags$li("Time (numeric)"),
+                         shiny::tags$li("Event/Status (0/1 or TRUE/FALSE)"),
+                         shiny::tags$li("Arm/Group (categorical)")
+                       )
+        )
+      ),
+      footer = shiny::modalButton("Close")
+    ))
+  })
+
+  # 1. Image & Magick (Protected logic for Images Only)
+  shiny::observeEvent(input$img_upload, {
+    shiny::req(input$img_upload)
+    vals$original_img_path <- input$img_upload$datapath
+
+    ext <- tolower(tools::file_ext(input$img_upload$name))
+
+    if (ext %in% c("png", "jpg", "jpeg")) {
+      # IMAGE MODE
+      vals$mode <- "manual"
+      vals$processed_img_path <- input$img_upload$datapath
+      # Trigger image processing is handled by the other observer
+
+    } else {
+      # DATASET MODE
+      tryCatch({
+        df <- NULL
+        if (ext == "rds") {
+          df <- readRDS(vals$original_img_path)
+        } else if (ext == "rda") {
+          env <- new.env()
+          load(vals$original_img_path, envir = env)
+          df <- env[[ls(env)[1]]] # Pick first object
+        } else if (ext %in% c("xlsx", "xls")) {
+          # Assume readxl is available
+          if (requireNamespace("readxl", quietly = TRUE)) {
+            df <- readxl::read_excel(vals$original_img_path)
+          } else {
+            stop("readxl package required for Excel files.")
+          }
+        } else if (ext == "csv") {
+          df <- utils::read.csv(vals$original_img_path)
+        }
+
+        # Heuristics
+        if (!is.data.frame(df)) stop("Loaded object is not a data frame.")
+
+        ns <- tolower(names(df))
+        # Synonyms
+        t_vars <- c("time", "tiempo", "t", "os", "pfs", "months", "days", "sem", "weeks", "futime", "ttfs")
+        e_vars <- c("event", "status", "censor", "dead", "death", "evento", "estado", "outcome", "fustat")
+        a_vars <- c("arm", "group", "treatment", "trt", "strat", "strata", "curve", "rama", "grupo")
+
+        # Find indexes (first match)
+        t_idx <- which(ns %in% t_vars)[1]
+        e_idx <- which(ns %in% e_vars)[1]
+        a_idx <- which(ns %in% a_vars)[1]
+
+        if (is.na(t_idx) || is.na(e_idx) || is.na(a_idx)) {
+          stop("Could not identify columns 'time', 'event', and 'arm' (or synonyms). Please rename your columns.")
+        }
+
+        # Clean and format
+        clean_df <- data.frame(
+          time = as.numeric(df[[t_idx]]),
+          status = as.numeric(df[[e_idx]]),
+          arm = as.factor(df[[a_idx]])
+        )
+
+        # Basic validation
+        if (any(is.na(clean_df$time))) warning("NA in time column.")
+        clean_df <- na.omit(clean_df)
+
+        vals$final_ipd <- clean_df
+        vals$fit_obj <- survfit(Surv(time, status) ~ arm, data = clean_df)
+        vals$cox_obj <- tryCatch(coxph(Surv(time, status) ~ arm, data = clean_df), error=function(e) NULL)
+        vals$mode <- "dataset"
+        vals$processed_img_path <- NULL # Clear image
+
+        shiny::showNotification("Dataset loaded successfully. Running analysis...", type="message")
+        vals$run_analysis_flag <- Sys.time()
+
+      }, error = function(e) {
+        shiny::showNotification(paste("Error loading dataset:", e$message), type="error", duration=10)
+      })
+    }
+  })
+
   shiny::observe({
     shiny::req(vals$original_img_path)
+    shiny::req(vals$mode == "manual") # ONLY RUN IF MODE IS MANUAL (IMAGE)
     input$man_border; input$man_brightness; input$man_contrast
     tryCatch({
       img <- magick::image_read(vals$original_img_path)
@@ -686,82 +788,95 @@ server <- function(input, output, session) {
   # ==============================================================================
   run_core_analysis <- function() {
     Time <- N_Risk_G1 <- time_tick <- nrisk <- N_Risk_G2 <- survival <- NULL
-    shiny::req(vals$risk_table_editable, vals$y_axis_editable)
+
+    # Logic split based on mode
+    if (is.null(vals$mode) || vals$mode != "dataset") {
+      shiny::req(vals$risk_table_editable, vals$y_axis_editable)
+    }
+
     # UX FIX: persistent notification until finished
     id_cal <- shiny::showNotification("Calculating Metrics... Please wait.", type="message", duration=NULL)
 
     tryCatch({
-      if(is.null(vals$manual_raw_data)) stop("Missing curve data.")
 
-      rt <- vals$risk_table_editable; vy <- vals$y_axis_editable$Y_Values
+      if (is.null(vals$mode) || vals$mode != "dataset") {
+        # --- RECONSTRUCTION LOGIC (EXISTING) ---
+        if(is.null(vals$manual_raw_data)) stop("Missing curve data.")
 
-      if(is.null(vals$curve_mapping)) {
-        vals$curve_mapping <- map_curves_to_risk_groups(vals$manual_raw_data, rt)
-        msg <- sprintf("Auto-mapping: Curve %d -> G1, Curve %d -> G2",
-                       vals$curve_mapping$curve_to_G1, vals$curve_mapping$curve_to_G2)
-        shiny::showNotification(msg, type="message", duration=5)
-      }
+        rt <- vals$risk_table_editable; vy <- vals$y_axis_editable$Y_Values
 
-      limpiar <- function(x) as.numeric(gsub("[^0-9.]", "", as.character(x)))
+        if(is.null(vals$curve_mapping)) {
+          vals$curve_mapping <- map_curves_to_risk_groups(vals$manual_raw_data, rt)
+          msg <- sprintf("Auto-mapping: Curve %d -> G1, Curve %d -> G2",
+                         vals$curve_mapping$curve_to_G1, vals$curve_mapping$curve_to_G2)
+          shiny::showNotification(msg, type="message", duration=5)
+        }
 
-      check_mono <- function(x) {
-        x_clean <- as.numeric(x[!is.na(x)])
-        if(length(x_clean) < 2) return(TRUE)
-        if(any(diff(x_clean) > 0)) return(FALSE)
-        return(TRUE)
-      }
-      if(!check_mono(rt$N_Risk_G1)) stop("Error: N_Risk_G1 increases over time.")
-      if(!check_mono(rt$N_Risk_G2)) stop("Error: N_Risk_G2 increases over time.")
+        limpiar <- function(x) as.numeric(gsub("[^0-9.]", "", as.character(x)))
 
-      df_c1 <- rt %>% dplyr::transmute(
-        time_tick = as.numeric(Time),
-        nrisk = limpiar(N_Risk_G1),
-        curve = vals$curve_mapping$curve_to_G1
-      ) %>% dplyr::filter(!is.na(time_tick), !is.na(nrisk))
+        check_mono <- function(x) {
+          x_clean <- as.numeric(x[!is.na(x)])
+          if(length(x_clean) < 2) return(TRUE)
+          if(any(diff(x_clean) > 0)) return(FALSE)
+          return(TRUE)
+        }
+        if(!check_mono(rt$N_Risk_G1)) stop("Error: N_Risk_G1 increases over time.")
+        if(!check_mono(rt$N_Risk_G2)) stop("Error: N_Risk_G2 increases over time.")
 
-      df_c2 <- rt %>% dplyr::transmute(
-        time_tick = as.numeric(Time),
-        nrisk = limpiar(N_Risk_G2),
-        curve = vals$curve_mapping$curve_to_G2
-      ) %>% dplyr::filter(!is.na(time_tick), !is.na(nrisk))
+        df_c1 <- rt %>% dplyr::transmute(
+          time_tick = as.numeric(Time),
+          nrisk = limpiar(N_Risk_G1),
+          curve = vals$curve_mapping$curve_to_G1
+        ) %>% dplyr::filter(!is.na(time_tick), !is.na(nrisk))
 
-      nrisk_all <- dplyr::bind_rows(df_c1, df_c2)
+        df_c2 <- rt %>% dplyr::transmute(
+          time_tick = as.numeric(Time),
+          nrisk = limpiar(N_Risk_G2),
+          curve = vals$curve_mapping$curve_to_G2
+        ) %>% dplyr::filter(!is.na(time_tick), !is.na(nrisk))
 
-      ipd_list <- list()
-      for (cid in unique(nrisk_all$curve)) {
-        km <- subset(vals$manual_raw_data, curve == cid)
-        nr <- subset(nrisk_all, curve == cid)
-        if (nrow(nr) >= 2 && nrow(km) > 0) {
-          ipd_rec <- bayescores::reconstruct_ipd(km, nr)$ipd
-          if(cid == vals$curve_mapping$curve_to_G1) {
-            ipd_rec$arm <- "Group 1"
-          } else {
-            ipd_rec$arm <- "Group 2"
+        nrisk_all <- dplyr::bind_rows(df_c1, df_c2)
+
+        ipd_list <- list()
+        for (cid in unique(nrisk_all$curve)) {
+          km <- subset(vals$manual_raw_data, curve == cid)
+          nr <- subset(nrisk_all, curve == cid)
+          if (nrow(nr) >= 2 && nrow(km) > 0) {
+            ipd_rec <- bayescores::reconstruct_ipd(km, nr)$ipd
+            if(cid == vals$curve_mapping$curve_to_G1) {
+              ipd_rec$arm <- "Group 1"
+            } else {
+              ipd_rec$arm <- "Group 2"
+            }
+            ipd_list[[length(ipd_list) + 1]] <- ipd_rec
           }
-          ipd_list[[length(ipd_list) + 1]] <- ipd_rec
         }
-      }
 
-      if (length(ipd_list) > 0) {
-        final <- dplyr::bind_rows(ipd_list)
-        mod_init <- coxph(Surv(time, status) ~ arm, final)
-        hr_init <- exp(coef(mod_init)[1])
-        if(!is.na(hr_init) && hr_init > 1) {
-          final$arm <- ifelse(final$arm == "Group 1", "Group 2", "Group 1")
-          temp_map <- vals$curve_mapping$curve_to_G1
-          vals$curve_mapping$curve_to_G1 <- vals$curve_mapping$curve_to_G2
-          vals$curve_mapping$curve_to_G2 <- temp_map
-          temp_risk <- vals$risk_table_editable$N_Risk_G1
-          vals$risk_table_editable$N_Risk_G1 <- vals$risk_table_editable$N_Risk_G2
-          vals$risk_table_editable$N_Risk_G2 <- temp_risk
+        if (length(ipd_list) > 0) {
+          final <- dplyr::bind_rows(ipd_list)
           mod_init <- coxph(Surv(time, status) ~ arm, final)
-          shiny::showNotification("HR > 1 detected. Arms swapped automatically.", type="warning", duration=6)
+          hr_init <- exp(coef(mod_init)[1])
+          if(!is.na(hr_init) && hr_init > 1) {
+            final$arm <- ifelse(final$arm == "Group 1", "Group 2", "Group 1")
+            temp_map <- vals$curve_mapping$curve_to_G1
+            vals$curve_mapping$curve_to_G1 <- vals$curve_mapping$curve_to_G2
+            vals$curve_mapping$curve_to_G2 <- temp_map
+            temp_risk <- vals$risk_table_editable$N_Risk_G1
+            vals$risk_table_editable$N_Risk_G1 <- vals$risk_table_editable$N_Risk_G2
+            vals$risk_table_editable$N_Risk_G2 <- temp_risk
+            mod_init <- coxph(Surv(time, status) ~ arm, final)
+            shiny::showNotification("HR > 1 detected. Arms swapped automatically.", type="warning", duration=6)
+          }
+          vals$final_ipd <- final
+          vals$fit_obj <- survfit(Surv(time, status) ~ arm, final)
+          vals$cox_obj <- mod_init
+        } else {
+          stop("Could not reconstruct curves.")
         }
-        vals$final_ipd <- final
-        vals$fit_obj <- survfit(Surv(time, status) ~ arm, final)
-        vals$cox_obj <- mod_init
       } else {
-        stop("Could not reconstruct curves.")
+        # --- DATASET MODE ---
+        shiny::req(vals$final_ipd)
+        # Assuming vals$final_ipd and vals$fit_obj are already set in the upload observer
       }
 
       data <- vals$final_ipd; arms <- levels(factor(data$arm)); ac <- arms[1]; ae <- arms[2]
