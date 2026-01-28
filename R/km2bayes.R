@@ -22,7 +22,7 @@
 #' @rawNamespace import(survival, except = c(cluster))
 #' @rawNamespace import(future, except = c(cluster))
 #' @importFrom graphics legend lines
-#' @importFrom stats plogis time vcov
+#' @importFrom stats plogis time vcov AIC
 #' @import bslib
 #' @import stringr
 #' @import dplyr
@@ -339,8 +339,8 @@ ui <- shiny::tagList(
                                                  shiny::tags$li(shiny::strong("Check Digitization Accuracy:"), " Review the calibration plot below. If the Mixture Cure model (dashed red) deviates substantially from the Kaplan-Meier curve (solid black), the digitization may need refinement."),
                                                  # UPDATED TEXT HERE: TAIL ASSUMPTION
                                                  shiny::tags$li(shiny::strong("Check Stability Metrics:"), " Use the Instability Check table and Interpretation Suggestions to decide on 'Tail Assumption' setting in the Bayesian model (e.g., 'immature_skeptical' for AFT-only models)."),
-                                                 # UPDATED TEXT HERE: THRESHOLD AND MAE
-                                                 shiny::tags$li(shiny::strong("Check Calibration for Shared Shape:"), " If the MAE (Mean Absolute Error) between arms differs substantially (> 3.0x), consider ", shiny::strong("unchecking 'Shared Shape'"), " in the Bayesian Model settings to allow each arm its own shape parameter.")
+                                                 # UPDATED TEXT HERE: THRESHOLD, MAE AND AIC
+                                                 shiny::tags$li(shiny::strong("Check Calibration for Shared Shape:"), " Compare MAE and AIC. If MAE differs substantially (> 3.0x) ", shiny::strong("OR"), " if the Free Shape AIC is lower by > 4 points, consider ", shiny::strong("unchecking 'Shared Shape'"), " to allow independent shape parameters.")
                                                )
                                     )
                                   ),
@@ -774,6 +774,15 @@ server <- function(input, output, session) {
       fc <- flexsurvcure(Surv(ts, status)~arm, data=data, anc=list(scale=~arm), dist="weibull", link="logistic", mixture=TRUE)
       vals$cure_model_obj <- fc
 
+      # --- NEW: Fit Free Shape Model for Comparison ---
+      fc_free <- tryCatch({
+        flexsurvcure(Surv(ts, status)~arm, data=data, anc=list(shape=~arm, scale=~arm), dist="weibull", link="logistic", mixture=TRUE)
+      }, error = function(e) NULL)
+
+      aic_shared <- tryCatch(AIC(fc), error=function(e) NA)
+      aic_free <- tryCatch(if(!is.null(fc_free)) AIC(fc_free) else NA, error=function(e) NA)
+      # ------------------------------------------------
+
       # Calc Reverse KM
       rev_km <- survfit(Surv(time, 1-status) ~ 1, data=data)
       median_follow_up <- summary(rev_km)$table["median"]
@@ -891,22 +900,49 @@ server <- function(input, output, session) {
         mae_ratio <<- NA
       })
 
-      # CALIBRATION WARNING FOR SHARED SHAPE
+      # CALIBRATION WARNING LOGIC (UPDATED WITH BURNHAM & ANDERSON CRITERIA)
       vals$calibration_warning_html <- NULL
-      if(!is.na(mae_ratio)) {
-        # CHANGED RATIO TO 3.0 AS REQUESTED
-        if(mae_ratio > 3.0) {
-          vals$calibration_warning_html <- shiny::HTML(paste0(
-            "<div style='background-color: #FFEBEE; padding: 12px; border-left: 5px solid #D32F2F; margin-bottom: 10px;'>",
-            "<strong style='color: #D32F2F;'>&#9888; Calibration Warning:</strong> ",
-            "The Mean Absolute Error (MAE) differs substantially between arms (MAE Arm1 = ", round(mae_arm1, 4),
-            ", MAE Arm2 = ", round(mae_arm2, 4), ", ratio = ", round(mae_ratio, 2), "x). ",
-            "This suggests the Weibull shape parameter may differ between treatment groups. ",
-            "<strong>Recommendation:</strong> Consider <strong>unchecking 'Shared Shape'</strong> in the Bayesian Model settings ",
-            "to allow each arm to have its own shape parameter, which may improve model fit.",
-            "</div>"
-          ))
+
+      # Determine if non-shared shape is recommended
+      recommend_non_shared <- FALSE
+      reasons_non_shared <- c()
+
+      # 1. Calculate AIC Difference
+      diff_aic <- NA
+      if(!is.na(aic_shared) && !is.na(aic_free)) {
+        diff_aic <- aic_shared - aic_free # Positive means Free Shape is better (lower AIC)
+      }
+
+      # 2. MAE Criterion (Unchanged)
+      if(!is.na(mae_ratio) && mae_ratio > 3.0) {
+        recommend_non_shared <- TRUE
+        reasons_non_shared <- c(reasons_non_shared, paste0("High MAE imbalance (Ratio = ", round(mae_ratio, 2), "x)"))
+      }
+
+      # 3. AIC Criterion (Burnham & Anderson Rules)
+      if(!is.na(diff_aic)) {
+        if(diff_aic > 10) {
+          # Strong evidence against the simple model
+          recommend_non_shared <- TRUE
+          reasons_non_shared <- c(reasons_non_shared, paste0("Strong statistical evidence (Delta AIC = ", round(diff_aic, 1), " > 10)"))
+        } else if (diff_aic > 4) {
+          # Moderate evidence (consider if visuals support it)
+          recommend_non_shared <- TRUE
+          reasons_non_shared <- c(reasons_non_shared, paste0("Moderate statistical evidence (Delta AIC = ", round(diff_aic, 1), " > 4)"))
         }
+        # Note: If diff_aic <= 4, we maintain Parsimony (Shared Shape) and do NOT trigger warning based on AIC.
+      }
+
+      if(recommend_non_shared) {
+        vals$calibration_warning_html <- shiny::HTML(paste0(
+          "<div style='background-color: #FFEBEE; padding: 12px; border-left: 5px solid #D32F2F; margin-bottom: 10px;'>",
+          "<strong style='color: #D32F2F;'>&#9888; Calibration Warning:</strong> ",
+          "Evidence suggests the Weibull shape parameter differs between treatment groups. ",
+          "Reasons: ", paste(reasons_non_shared, collapse = ", "), ". ",
+          "<strong>Recommendation:</strong> Consider <strong>unchecking 'Shared Shape'</strong> in the Bayesian Model settings ",
+          "to allow each arm to have its own shape parameter, which may improve model fit.",
+          "</div>"
+        ))
       }
 
       fr <- data.frame(
@@ -923,7 +959,9 @@ server <- function(input, output, session) {
         Median_Surv_Ctrl = median_surv_ctrl,
         MAE_Arm1 = if(!is.na(mae_arm1)) mae_arm1 else NA,
         MAE_Arm2 = if(!is.na(mae_arm2)) mae_arm2 else NA,
-        MAE_Ratio = if(!is.na(mae_ratio)) mae_ratio else NA
+        MAE_Ratio = if(!is.na(mae_ratio)) mae_ratio else NA,
+        AIC_Shared = if(!is.na(aic_shared)) aic_shared else NA,
+        AIC_Free_Shape = if(!is.na(aic_free)) aic_free else NA
       )
 
       vals$analysis_results_full <- fr
@@ -937,8 +975,8 @@ server <- function(input, output, session) {
       b1_m <- c("N_Total", "N_Ctrl", "N_Exp", "Tau_Common")
       b1_v <- vals_vec[b1_m]
 
-      # Block 2: Events (Added MAE_Arm1/2 here as requested "middle table")
-      b2_m <- c("Events_Total", "Censored_Total", "Censoring_Rate_Global", "Events_Ctrl", "MAE_Arm1", "MAE_Arm2")
+      # Block 2: Events & Calibration (Added AICs here)
+      b2_m <- c("Events_Total", "Censored_Total", "MAE_Arm1", "MAE_Arm2", "AIC_Shared", "AIC_Free_Shape")
       b2_v <- vals_vec[b2_m]
 
       # Block 3: Instability Metrics (Added MAE_Ratio here)
@@ -1086,6 +1124,19 @@ server <- function(input, output, session) {
         )
       }
 
+      # AIC Conclusion Text
+      aic_conclusion <- ""
+      if(!is.na(aic_shared) && !is.na(aic_free)) {
+        daic <- aic_shared - aic_free
+        if(daic > 10) {
+          aic_conclusion <- paste0("<div style='margin-top: 10px; padding: 10px; background-color: #E3F2FD; border-left: 4px solid #1976D2;'><b>Model Structure Recommendation:</b> Strong statistical evidence favors <b>Free Shape</b> (Delta AIC = ", round(daic, 1), " > 10). Uncheck 'Shared Shape'.</div>")
+        } else if(daic > 4) {
+          aic_conclusion <- paste0("<div style='margin-top: 10px; padding: 10px; background-color: #E3F2FD; border-left: 4px solid #1976D2;'><b>Model Structure Recommendation:</b> Moderate evidence favors <b>Free Shape</b> (Delta AIC = ", round(daic, 1), " > 4). Consider unchecking 'Shared Shape'.</div>")
+        } else {
+          aic_conclusion <- paste0("<div style='margin-top: 10px; padding: 10px; background-color: #F1F8E9; border-left: 4px solid #388E3C;'><b>Model Structure Recommendation:</b> Evidence supports <b>Shared Shape</b> (Parsimony holds, Delta AIC < 4).</div>")
+        }
+      }
+
       html_content <- paste0(
         "<h5>", interp_scenario, "</h5>",
         "<hr>",
@@ -1093,7 +1144,8 @@ server <- function(input, output, session) {
         interp_criteria,
         "<p><b>Interpretation:</b> ", interp_interpretation, "</p>",
         "<hr>",
-        interp_protocol
+        interp_protocol,
+        aic_conclusion
       )
       vals$interpretation_html <- shiny::HTML(html_content)
 
