@@ -39,7 +39,7 @@
 #' @import writexl
 #' @import rhandsontable
 #' @importFrom here here
-#' @importFrom utils write.csv head globalVariables read.csv
+#' @importFrom utils write.csv head globalVariables read.csv data
 #' @importFrom grDevices dev.off pdf
 #' @importFrom graphics par rect
 #' @importFrom stats median coef cor
@@ -218,7 +218,7 @@ km2bayes <- function() {
 ui <- shiny::tagList(
   shiny::tags$head(shiny::tags$style(shiny::HTML(css_blue_metal))),
   bslib::page_sidebar(
-    title = "KM2bayes: Instability metrics",
+    title = "KM2bayes: BayeScores with nnstability metrics",
     theme = bslib::bs_theme(version = 5, bootswatch = "flatly", bg = "#F4F7FC", fg = "#0B1F3A", primary = "#1E5AA8"),
 
     sidebar = bslib::sidebar(
@@ -241,6 +241,11 @@ ui <- shiny::tagList(
                    shiny::actionLink("upload_info_btn", label=NULL, icon=shiny::icon("info-circle"))
         ),
         shiny::fileInput("img_upload", label=NULL, accept = c("image/png", "image/jpeg", ".jpg", ".png", ".rds", ".rda", ".xlsx", ".csv")),
+
+        # NEW: EXAMPLE DATASETS DROPDOWN
+        shiny::div(style="text-align: center; margin-top: -10px; margin-bottom: 10px; color: #aaa; font-weight: bold; font-size: 0.8rem;", "- OR -"),
+        shiny::selectInput("example_dataset", "Use Example Dataset (bayescores):", choices = c("Select..." = ""), width = "100%"),
+        shiny::div(style="margin-bottom: 15px;"),
 
         # STEP 2: IMPORT
         shiny::actionButton("open_import_data", "2. Import Data (Text/Opal)", class = "btn-info w-100 mb-3", icon = shiny::icon("file-import")),
@@ -512,6 +517,66 @@ server <- function(input, output, session) {
     ))
   })
 
+  # 0. Populate Example Datasets
+  shiny::observe({
+    tryCatch({
+      ds <- utils::data(package = "bayescores")$results[, "Item"]
+      # Filter out toxicity
+      ds_clean <- ds[!grepl("toxicity", ds, ignore.case = TRUE)]
+      shiny::updateSelectInput(session, "example_dataset", choices = c("Select..." = "", ds_clean))
+    }, error = function(e) warning("Could not list bayescores datasets"))
+  })
+
+  # OBSERVER FOR EXAMPLE DATASETS
+  shiny::observeEvent(input$example_dataset, {
+    shiny::req(input$example_dataset)
+    if (input$example_dataset == "") return()
+
+    tryCatch({
+      env <- new.env()
+      utils::data(list = input$example_dataset, package = "bayescores", envir = env)
+      df <- env[[ls(env)[1]]]
+
+      # Reuse the heuristics logic
+      ns <- tolower(names(df))
+      t_vars <- c("time", "tiempo", "t", "os", "pfs", "months", "days", "sem", "weeks", "futime", "ttfs")
+      e_vars <- c("event", "status", "censor", "dead", "death", "evento", "estado", "outcome", "fustat")
+      a_vars <- c("arm", "group", "treatment", "trt", "strat", "strata", "curve", "rama", "grupo")
+
+      t_idx <- which(ns %in% t_vars)[1]
+      e_idx <- which(ns %in% e_vars)[1]
+      a_idx <- which(ns %in% a_vars)[1]
+
+      if (is.na(t_idx) || is.na(e_idx) || is.na(a_idx)) {
+        if(ncol(df) >= 3) {
+          t_idx <- 1; e_idx <- 2; a_idx <- 3
+          shiny::showNotification("Columns inferred by position (1=Time, 2=Event, 3=Arm).", type="warning")
+        } else {
+          stop("Could not identify columns.")
+        }
+      }
+
+      clean_df <- data.frame(
+        time = as.numeric(df[[t_idx]]),
+        status = as.numeric(df[[e_idx]]),
+        arm = as.factor(df[[a_idx]])
+      )
+      clean_df <- na.omit(clean_df)
+
+      vals$final_ipd <- clean_df
+      vals$fit_obj <- survfit(Surv(time, status) ~ arm, data = clean_df)
+      vals$cox_obj <- tryCatch(coxph(Surv(time, status) ~ arm, data = clean_df), error=function(e) NULL)
+      vals$mode <- "dataset"
+      vals$processed_img_path <- NULL
+
+      shiny::showNotification(paste("Example dataset", input$example_dataset, "loaded."), type="message")
+      vals$run_analysis_flag <- Sys.time()
+
+    }, error = function(e) {
+      shiny::showNotification(paste("Error loading example:", e$message), type="error")
+    })
+  })
+
   # 1. Image & Magick (Protected logic for Images Only)
   shiny::observeEvent(input$img_upload, {
     shiny::req(input$img_upload)
@@ -524,6 +589,8 @@ server <- function(input, output, session) {
       vals$mode <- "manual"
       vals$processed_img_path <- input$img_upload$datapath
       # Trigger image processing is handled by the other observer
+      # Clear example selection if any
+      shiny::updateSelectInput(session, "example_dataset", selected = "")
 
     } else {
       # DATASET MODE
@@ -580,6 +647,9 @@ server <- function(input, output, session) {
         vals$cox_obj <- tryCatch(coxph(Surv(time, status) ~ arm, data = clean_df), error=function(e) NULL)
         vals$mode <- "dataset"
         vals$processed_img_path <- NULL # Clear image
+
+        # Clear example selection if any
+        shiny::updateSelectInput(session, "example_dataset", selected = "")
 
         shiny::showNotification("Dataset loaded successfully. Running analysis...", type="message")
         vals$run_analysis_flag <- Sys.time()
