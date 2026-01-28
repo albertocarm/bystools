@@ -423,7 +423,8 @@ ui <- shiny::tagList(
                   shiny::div(shiny::h6("Diagnostic Plot"), shiny::plotOutput("plot_diagnostics", height = "260px"))
                 )
               ),
-              bslib::nav_panel("Stan Code", shiny::verbatimTextOutput("repro_code"))
+              # RENAMED TAB TO "R Code (Reproduction)"
+              bslib::nav_panel("R Code (Reproduction)", shiny::verbatimTextOutput("repro_code"))
             )
           )
         )
@@ -1182,18 +1183,83 @@ server <- function(input, output, session) {
       hist_arg <- if (input$use_historical) {
         paste0("TRUE, params=c(", input$hist_mean, ",", input$hist_sd, ")")
       } else {
-        paste0("FALSE, tail_assumption='", input$tail_assumption, "'") # Fixed typo: changed belief to tail_assumption
+        paste0("FALSE, tail_assumption='", input$tail_assumption, "'")
       }
+
+      # GENERATING COMPLETE REPRODUCTION R CODE
       vals$code_text <- paste0(
-        "library(bayescores)\nlibrary(rstan)\nipd <- readRDS('path/to/ipd.rds')\n",
-        "fit <- fit_bayesian_cure_model(ipd, time_col='time', event_col='status', arm_col='arm', iter=",
-        input$iter, ", chains=", input$chains, ", warmup=", input$warmup, ", shared_shape=",
-        input$shared_shape, ", use_historical_prior=", hist_arg, ")\n",
-        "diagnose_fit(fit$stan_fit)\nmodel_diagnostics(fit)\n",
-        "# Plots\n",
+        "library(readxl)\nlibrary(survival)\nlibrary(flexsurvcure)\nlibrary(bayescores)\nlibrary(rstan)\nlibrary(dplyr)\n\n",
+        "# ------------------------------------------------------------------\n",
+        "# 1. LOAD DATA\n",
+        "# ------------------------------------------------------------------\n",
+        "# Please define the path to your downloaded 'ipd.xlsx' file\n",
+        "file_path <- \"path/to/your/ipd.xlsx\" # <--- EDIT THIS PATH\n",
+        "ipd <- readxl::read_excel(file_path)\n\n",
+
+        "# ------------------------------------------------------------------\n",
+        "# 2. STABILITY METRICS & FORENSIC ANALYSIS (Replication)\n",
+        "# ------------------------------------------------------------------\n",
+        "# Data Prep\n",
+        "sf <- median(ipd$time)\n",
+        "ipd$ts <- ipd$time/sf\n",
+        "arms <- levels(factor(ipd$arm)); ac <- arms[1]; ae <- arms[2]\n\n",
+
+        "# Kaplan-Meier & Cox\n",
+        "km_fit <- survfit(Surv(time, status) ~ arm, data=ipd)\n",
+        "print(km_fit)\n\n",
+
+        "# Mixture Cure Models (Frequentist for AIC/Correlation)\n",
+        "# Model A: Shared Shape (Parsimonious)\n",
+        "fc_shared <- flexsurvcure(Surv(ts, status)~arm, data=ipd, \n",
+        "                          anc=list(scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE)\n",
+        "# Model B: Free Shape (Complex)\n",
+        "fc_free <- try(flexsurvcure(Surv(ts, status)~arm, data=ipd, \n",
+        "                        anc=list(shape=~arm, scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE), silent=TRUE)\n\n",
+
+        "# Calculate AICs\n",
+        "aic_shared <- AIC(fc_shared)\n",
+        "aic_free <- if(!inherits(fc_free, \"try-error\")) AIC(fc_free) else NA\n",
+        "cat(\"AIC Shared:\", aic_shared, \"\\nAIC Free:\", aic_free, \"\\n\")\n",
+        "if(!is.na(aic_free) && (aic_shared - aic_free > 4)) cat(\"Suggestion: Consider Free Shape (Delta AIC > 4)\\n\")\n\n",
+
+        "# Extract Pearson Correlation (Parameter Stability)\n",
+        "vc <- vcov(fc_shared)\n",
+        "ith <- grep(\"arm\", rownames(vc)); isc <- grep(\"scale\\\\(arm\", rownames(vc))\n",
+        "idx1 <- ith[!ith %in% isc]; idx2 <- isc\n",
+        "if(length(idx1)>0 && length(idx2)>0) {\n",
+        "  pearson <- vc[idx1[1], idx2[1]] / (sqrt(vc[idx1[1], idx1[1]]) * sqrt(vc[idx2[1], idx2[1]]))\n",
+        "  cat(\"Pearson Correlation:\", pearson, \"\\n\")\n",
+        "} else { cat(\"Correlation not calculated.\\n\") }\n\n",
+
+        "# Calculate Maturity Index\n",
+        "rev_km <- survfit(Surv(time, 1-status) ~ 1, data=ipd)\n",
+        "med_fu <- summary(rev_km)$table[\"median\"]\n",
+        "if(is.na(med_fu)) med_fu <- max(ipd$time)\n",
+        "km_ctrl <- survfit(Surv(time, status) ~ 1, data=ipd[ipd$arm==ac,])\n",
+        "med_surv_ctrl <- summary(km_ctrl)$table[\"median\"]\n",
+        "if(is.na(med_surv_ctrl)) med_surv_ctrl <- max(ipd$time[ipd$arm==ac])\n",
+        "maturity_idx <- med_fu / med_surv_ctrl\n",
+        "cat(\"Maturity Index:\", maturity_idx, \"\\n\")\n\n",
+
+        "# ------------------------------------------------------------------\n",
+        "# 3. BAYESIAN MODEL FITTING\n",
+        "# ------------------------------------------------------------------\n",
+        "fit <- fit_bayesian_cure_model(ipd, \n",
+        "                               time_col='time', event_col='status', arm_col='arm', \n",
+        "                               iter=", input$iter, ", chains=", input$chains, ", warmup=", input$warmup, ", \n",
+        "                               shared_shape=", input$shared_shape, ", \n",
+        "                               use_historical_prior=", hist_arg, ")\n\n",
+
+        "# ------------------------------------------------------------------\n",
+        "# 4. DIAGNOSTICS & PLOTS\n",
+        "# ------------------------------------------------------------------\n",
+        "diagnose_fit(fit$stan_fit)\n",
+        "model_diagnostics(fit)\n",
         "bayescores::plot_densities(fit)\n",
-        "bayescores::plot_correlated_densities(fit)"
+        "bayescores::plot_correlated_densities(fit)\n",
+        "plot(fit)\n"
       )
+
       vals$model_fit_obj <- bayescores::fit_bayesian_cure_model(
         vals$final_ipd,
         time_col = "time", event_col = "status", arm_col = "arm",
