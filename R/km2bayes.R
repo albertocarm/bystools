@@ -51,6 +51,9 @@ km2bayes <- function() {
   # Increase upload size
   options(shiny.maxRequestSize = 30*1024^2)
 
+  # Stan
+  rstan::rstan_options(auto_write = TRUE)
+  options(mc.cores = parallel::detectCores())
 
   # ==============================================================================
   # 3. USER INTERFACE (UI)
@@ -218,7 +221,7 @@ km2bayes <- function() {
 ui <- shiny::tagList(
   shiny::tags$head(shiny::tags$style(shiny::HTML(css_blue_metal))),
   bslib::page_sidebar(
-    title = "KM2bayes: BayeScores with nnstability metrics",
+    title = "KM2bayes: BayeScores with instability metrics",
     theme = bslib::bs_theme(version = 5, bootswatch = "flatly", bg = "#F4F7FC", fg = "#0B1F3A", primary = "#1E5AA8"),
 
     sidebar = bslib::sidebar(
