@@ -1,0 +1,50 @@
+Package: bystools
+Title: Interactive Shiny Application for Bayesian Survival Analysis Pipeline
+Version: 0.2.4
+Authors@R: 
+    person(given = "Alberto",
+           family = "Carmona Bayonas",
+           email = "carmonab@um.es",
+           role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-1930-9660"))
+Description: Provides an interactive Shiny application for end-to-end Bayesian 
+    survival analysis. Features include digitization of Kaplan-Meier curves from 
+    published figures, reconstruction of individual patient data (IPD), Bayesian 
+    mixture cure model fitting, toxicity and quality-of-life data entry, and 
+    final clinical benefit score calculation. Designed to support transparent 
+    and reproducible oncology research workflows.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports: 
+    bayescores,
+    bslib,
+    dplyr,
+    DT,
+    flexsurv,
+    flexsurvcure,
+    future,
+    ggplot2,
+    graphics,
+    here,
+    jsonlite,
+    magick,
+    purrr,
+    readxl,
+    rhandsontable,
+    rstan,
+    shiny,
+    stats,
+    stringr,
+    SurvdigitizeR,
+    survival,
+    survminer,
+    tibble,
+    writexl
+Suggests:
+    reticulate
+Remotes:
+    Pechli-Lab/SurvdigitizeR,
+    albertocarm/BayeScores

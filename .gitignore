@@ -1,0 +1,20 @@
+.Rproj.user
+.positai
+
+# Python
+__pycache__/
+*.pyc
+
+# Local scratch / test assets
+_real/
+_b/
+_bench/
+Rplots.pdf
+_launch.R
+.claude/launch.json
+
+# R session artifacts
+.Rhistory
+*.Rhistory
+.RData
+.Rapp.history
