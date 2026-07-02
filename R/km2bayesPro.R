@@ -679,7 +679,13 @@ ui <- shiny::tagList(
                                     condition = "output.show_risk_grid == true",
                                     bslib::layout_columns(col_widths=6,
                                                           bslib::card(
-                                                            bslib::card_header(shiny::div(class="d-flex justify-content-between align-items-center", shiny::span("Data Correction"))),
+                                                            bslib::card_header(shiny::div(class="d-flex justify-content-between align-items-center",
+                                                              shiny::span("Data Correction"),
+                                                              shiny::conditionalPanel(
+                                                                condition = "output.has_fit == true",
+                                                                shiny::actionButton("apply_grid_edits", "Apply edits & re-analyze", class="btn-primary btn-sm", icon=shiny::icon("rotate"))
+                                                              )
+                                                            )),
                                                             rhandsontable::rHandsontableOutput("hot_risk_table"), shiny::div(style="height:10px"), rhandsontable::rHandsontableOutput("hot_y_axis")
                                                           )
                                     )
@@ -717,10 +723,10 @@ ui <- shiny::tagList(
                   shiny::hr(),
                   shiny::h6("Median survival", style = "font-weight:800;"),
                   bslib::layout_columns(col_widths = c(6,6),
-                    shiny::numericInput("real_med1", "Median · Group 1", value = NA, min = 0, step = 0.1),
-                    shiny::numericInput("real_med2", "Median · Group 2", value = NA, min = 0, step = 0.1)
+                    shiny::numericInput("real_med1", "Median · higher-survival arm", value = NA, min = 0, step = 0.1),
+                    shiny::numericInput("real_med2", "Median · lower-survival arm", value = NA, min = 0, step = 0.1)
                   ),
-                  shiny::helpText(shiny::HTML("Leave a median blank if it was <b>not reached (NR)</b> — common for high-survival curves that stay above 50% (e.g. adjuvant DFS). The HR comparison still works without it. Updates live as you type."))
+                  shiny::helpText(shiny::HTML("Enter each published median by the <b>arm's survival</b>, not by the paper's group order — the tool auto-swaps arms internally, so it compares each median against the reconstructed arm with matching survival. Leave a median blank if it was <b>not reached (NR)</b> — common for high-survival curves that stay above 50% (e.g. adjuvant DFS). The HR comparison still works without it. Updates live as you type."))
                 )
               ),
               bslib::card(
@@ -870,6 +876,7 @@ server <- function(input, output, session) {
     risk_table_editable=NULL, y_axis_editable=NULL,
     manual_raw_data=NULL, mode="manual",
     original_img_path=NULL, processed_img_path=NULL, overlay_img_path=NULL,
+    auto_clean_path=NULL,
     analysis_results_full=NULL, analysis_summary_view=NULL,
     cure_model_obj=NULL, master_data_loaded=NULL, rmst_details=NULL,
     curve_mapping=NULL, calib_data=NULL,
@@ -1068,6 +1075,7 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$run_auto_preprocess, {
     shiny::req(vals$original_img_path)
     vals$auto_done <- FALSE                      # banner reappears only when this run finishes
+    vals$auto_clean_path <- NULL
 
     # 1. reticulate present?
     if (!requireNamespace("reticulate", quietly = TRUE)) {
@@ -1137,6 +1145,7 @@ server <- function(input, output, session) {
 
       if (file.exists(clean_png)) {
         vals$processed_img_path <- clean_png
+        vals$auto_clean_path <- clean_png
         vals$mode <- "manual"
       }
       overlay_png <- paste0(prefix, "_overlay.png")
@@ -1310,6 +1319,7 @@ server <- function(input, output, session) {
       vals$original_img_path  <- f
       vals$overlay_img_path   <- NULL
       vals$processed_img_path <- f
+      vals$auto_clean_path    <- NULL
       vals$mode               <- "manual"
       vals$auto_done <- FALSE; vals$show_fallback <- FALSE
       shiny::updateSelectInput(session, "example_dataset_hero", selected = "")
@@ -1324,6 +1334,7 @@ server <- function(input, output, session) {
   handle_upload <- function(datapath, fname) {
     vals$original_img_path <- datapath
     vals$overlay_img_path <- NULL
+    vals$auto_clean_path <- NULL
     vals$auto_done <- FALSE; vals$show_fallback <- FALSE
 
     ext <- tolower(tools::file_ext(fname))
@@ -1506,8 +1517,8 @@ server <- function(input, output, session) {
   # Digitize the current (clean or raw) image into curve points with SurvdigitizeR.
   # Shared by the manual digitize action and the automatic path (called during
   # analysis when no curve data exists yet).
-  digitize_current_image <- function() {
-    raw <- .km2_survdigitize_robust(img_path=vals$processed_img_path, x_start=input$man_x_start, x_end=input$man_x_end, x_increment=input$man_x_inc, y_start=input$man_y_start, y_end=input$man_y_end, y_increment=input$man_y_inc, num_curves=input$man_num_curves, censoring=input$man_censoring, bg_lightness=input$man_bg_light, enhance=input$man_enhance, y_text_vertical=input$man_y_vert)
+  digitize_current_image <- function(img_path = vals$processed_img_path) {
+    raw <- .km2_survdigitize_robust(img_path=img_path, x_start=input$man_x_start, x_end=input$man_x_end, x_increment=input$man_x_inc, y_start=input$man_y_start, y_end=input$man_y_end, y_increment=input$man_y_inc, num_curves=input$man_num_curves, censoring=input$man_censoring, bg_lightness=input$man_bg_light, enhance=input$man_enhance, y_text_vertical=input$man_y_vert)
     if (max(raw$St, na.rm=TRUE) > 1.5) raw$survival <- raw$St/100 else raw$survival <- raw$St
     raw
   }
@@ -1687,10 +1698,12 @@ server <- function(input, output, session) {
         # Automatic path: no manual digitize was run, so digitize the cleaned image
         # here before reconstruction.
         if (is.null(vals$manual_raw_data)) {
-          shiny::req(vals$processed_img_path)
+          src <- if (!is.null(vals$auto_clean_path) && file.exists(vals$auto_clean_path))
+                   vals$auto_clean_path else vals$processed_img_path
+          shiny::req(src)
           id_ad <- shiny::showNotification("Digitizing the cleaned image... Please wait.", type="message", duration=NULL)
           on.exit(shiny::removeNotification(id_ad), add = TRUE)
-          vals$manual_raw_data <- digitize_current_image()
+          vals$manual_raw_data <- digitize_current_image(src)
           vals$curve_mapping <- NULL                     # remap arms after fresh digitization
         }
         if (is.null(vals$manual_raw_data)) stop("Missing curve data.")
@@ -1865,10 +1878,6 @@ server <- function(input, output, session) {
 
       maturity_idx <- median_follow_up / median_surv_ctrl
 
-      fc_aic <- tryCatch({
-        flexsurvcure(Surv(time, status)~arm, data=data, anc=list(scale=~arm), dist="weibull", link="logistic", mixture=TRUE)
-      }, error = function(e) NULL)
-
       # Initialize correlation variables
       pearson <- NA
       vcov_valid <- FALSE
@@ -1953,10 +1962,10 @@ server <- function(input, output, session) {
         }
         KM_S[is.na(KM_S)] <- 1
 
-        if(!is.null(fc_aic)) {
+        if(!is.null(fc)) {
           CURE_S <- cbind(
-            summary(fc_aic, newdata = data.frame(arm = arm_vals[1]), type = "survival", t = times_grid)[[1]]$est,
-            summary(fc_aic, newdata = data.frame(arm = arm_vals[2]), type = "survival", t = times_grid)[[1]]$est
+            summary(fc, newdata = data.frame(arm = arm_vals[1]), type = "survival", t = times_grid/sf)[[1]]$est,
+            summary(fc, newdata = data.frame(arm = arm_vals[2]), type = "survival", t = times_grid/sf)[[1]]$est
           )
         } else {
           CURE_S <- matrix(NA, nrow = length(times_grid), ncol = 2)
@@ -2309,15 +2318,23 @@ server <- function(input, output, session) {
     head(vals$final_ipd)
   })
 
-  shiny::observeEvent(input$apply_edits, {
-    rt <- rhandsontable::hot_to_r(input$hot_risk_table)
-    # Patient counts must stay integer even if a decimal is typed/pasted by hand.
-    for (col in c("N_Risk_G1", "N_Risk_G2"))
-      if (!is.null(rt[[col]])) rt[[col]] <- round(as.numeric(rt[[col]]))
-    vals$risk_table_editable <- rt
-    vals$y_axis_editable <- rhandsontable::hot_to_r(input$hot_y_axis)
-    run_core_analysis()
-  })
+  apply_grid_edits_and_reanalyze <- function() {
+    tryCatch({
+      if (!is.null(input$hot_risk_table)) {
+        rt <- rhandsontable::hot_to_r(input$hot_risk_table)
+        # Patient counts must stay integer even if a decimal is typed/pasted by hand.
+        for (col in c("N_Risk_G1", "N_Risk_G2"))
+          if (!is.null(rt[[col]])) rt[[col]] <- round(as.numeric(rt[[col]]))
+        vals$risk_table_editable <- rt
+      }
+      if (!is.null(input$hot_y_axis)) vals$y_axis_editable <- rhandsontable::hot_to_r(input$hot_y_axis)
+      run_core_analysis()
+    }, error = function(e)
+      shiny::showNotification(paste("Could not apply edits:", conditionMessage(e)), type = "error"))
+  }
+
+  shiny::observeEvent(input$apply_edits, { apply_grid_edits_and_reanalyze() })
+  shiny::observeEvent(input$apply_grid_edits, { apply_grid_edits_and_reanalyze() })
 
   shiny::observeEvent(vals$run_analysis_flag, { run_core_analysis() }, ignoreInit = TRUE)
 
@@ -2379,7 +2396,7 @@ server <- function(input, output, session) {
         "                                      anc=list(scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE)\n",
         "# Model B: Free Shape (Complex)\n",
         "fc_free <- try(flexsurvcure(Surv(ts, status)~arm, data=ipd, \n",
-        "                                    anc=list(shape=~arm), scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE), silent=TRUE)\n\n",
+        "                               anc=list(shape=~arm, scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE), silent=TRUE)\n\n",
 
         "# Calculate AICs\n",
         "aic_shared <- AIC(fc_shared)\n",
@@ -2775,7 +2792,13 @@ server <- function(input, output, session) {
         meds[1] <- as.numeric(tb["median"])
       }
     }
-    list(hr = hr, lo = lo, hi = hi, med1 = meds[1], med2 = meds[2])
+    surv_key <- function(m) if (is.na(m)) Inf else m
+    if (surv_key(meds[1]) >= surv_key(meds[2])) {
+      med_hi <- meds[1]; med_lo <- meds[2]
+    } else {
+      med_hi <- meds[2]; med_lo <- meds[1]
+    }
+    list(hr = hr, lo = lo, hi = hi, med_hi = med_hi, med_lo = med_lo)
   })
 
   fmt_err <- function(recon, real) {
@@ -2800,14 +2823,14 @@ server <- function(input, output, session) {
       Reconstructed = if (is.na(rm$lo)) "—" else sprintf("[%.3f, %.3f]", rm$lo, rm$hi),
       Real = if (is.null(input$real_hr_lo) || is.na(input$real_hr_lo)) "—" else sprintf("[%.3f, %.3f]", input$real_hr_lo, input$real_hr_hi),
       `Abs. error` = "—", `Rel. error` = "—", check.names = FALSE)
-    rows[[length(rows)+1]] <- { e <- fmt_err(rm$med1, input$real_med1)
-      data.frame(Metric = "Median · Group 1",
-                 Reconstructed = if (is.na(rm$med1)) "—" else sprintf("%.2f", rm$med1),
+    rows[[length(rows)+1]] <- { e <- fmt_err(rm$med_hi, input$real_med1)
+      data.frame(Metric = "Median · higher-survival arm",
+                 Reconstructed = if (is.na(rm$med_hi)) "NR" else sprintf("%.2f", rm$med_hi),
                  Real = if (is.null(input$real_med1) || is.na(input$real_med1)) "—" else sprintf("%.2f", input$real_med1),
                  `Abs. error` = e[1], `Rel. error` = e[2], check.names = FALSE) }
-    rows[[length(rows)+1]] <- { e <- fmt_err(rm$med2, input$real_med2)
-      data.frame(Metric = "Median · Group 2",
-                 Reconstructed = if (is.na(rm$med2)) "—" else sprintf("%.2f", rm$med2),
+    rows[[length(rows)+1]] <- { e <- fmt_err(rm$med_lo, input$real_med2)
+      data.frame(Metric = "Median · lower-survival arm",
+                 Reconstructed = if (is.na(rm$med_lo)) "NR" else sprintf("%.2f", rm$med_lo),
                  Real = if (is.null(input$real_med2) || is.na(input$real_med2)) "—" else sprintf("%.2f", input$real_med2),
                  `Abs. error` = e[1], `Rel. error` = e[2], check.names = FALSE) }
     do.call(rbind, rows)

@@ -1611,10 +1611,6 @@ server <- function(input, output, session) {
 
       maturity_idx <- median_follow_up / median_surv_ctrl
 
-      fc_aic <- tryCatch({
-        flexsurvcure(Surv(time, status)~arm, data=data, anc=list(scale=~arm), dist="weibull", link="logistic", mixture=TRUE)
-      }, error = function(e) NULL)
-
       # Initialize correlation variables
       pearson <- NA
       vcov_valid <- FALSE
@@ -1699,10 +1695,10 @@ server <- function(input, output, session) {
         }
         KM_S[is.na(KM_S)] <- 1
 
-        if(!is.null(fc_aic)) {
+        if(!is.null(fc)) {
           CURE_S <- cbind(
-            summary(fc_aic, newdata = data.frame(arm = arm_vals[1]), type = "survival", t = times_grid)[[1]]$est,
-            summary(fc_aic, newdata = data.frame(arm = arm_vals[2]), type = "survival", t = times_grid)[[1]]$est
+            summary(fc, newdata = data.frame(arm = arm_vals[1]), type = "survival", t = times_grid/sf)[[1]]$est,
+            summary(fc, newdata = data.frame(arm = arm_vals[2]), type = "survival", t = times_grid/sf)[[1]]$est
           )
         } else {
           CURE_S <- matrix(NA, nrow = length(times_grid), ncol = 2)
@@ -2125,7 +2121,7 @@ server <- function(input, output, session) {
         "                                      anc=list(scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE)\n",
         "# Model B: Free Shape (Complex)\n",
         "fc_free <- try(flexsurvcure(Surv(ts, status)~arm, data=ipd, \n",
-        "                                    anc=list(shape=~arm), scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE), silent=TRUE)\n\n",
+        "                               anc=list(shape=~arm, scale=~arm), dist=\"weibull\", link=\"logistic\", mixture=TRUE), silent=TRUE)\n\n",
 
         "# Calculate AICs\n",
         "aic_shared <- AIC(fc_shared)\n",
