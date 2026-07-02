@@ -2842,8 +2842,10 @@ server <- function(input, output, session) {
       return(shiny::helpText("Enter at least the real HR to get a verdict. Note: arms may be flipped relative to the paper; compare the HR on the same reference arm."))
     }
     rel <- 100 * abs(rm$hr - input$real_hr) / abs(input$real_hr)
-    in_ci <- !is.null(input$real_hr_lo) && !is.na(input$real_hr_lo) &&
-      rm$hr >= input$real_hr_lo && rm$hr <= input$real_hr_hi
+    if (!is.finite(rel)) rel <- Inf
+    in_ci <- isTRUE(!is.null(input$real_hr_lo) && !is.na(input$real_hr_lo) &&
+      !is.null(input$real_hr_hi) && !is.na(input$real_hr_hi) &&
+      rm$hr >= input$real_hr_lo && rm$hr <= input$real_hr_hi)
     col <- if (rel <= 5) "#16A34A" else if (rel <= 10) "#F59E0B" else "#D32F2F"
     lab <- if (rel <= 5) "Excellent" else if (rel <= 10) "Acceptable" else "Poor"
     msg <- if (rel <= 5) "well within tolerance"
