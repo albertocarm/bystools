@@ -317,14 +317,23 @@ def find_colors(lab, colorful, interior, k=None, kmax=4):
     return [c for c in km.cluster_centers_ if (abs(c[0] - 128) > 8 or abs(c[1] - 128) > 8)]
 
 
-def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0, kmax=4):
+def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0,
+                        hue_tol=0.30, kmax=4):
     """Robustly count how many distinct *coloured* arms the plot really has.
 
     Independent of the "N Curves" setting, so it can flag 3+ arm figures for
-    rejection. Only clusters that are chromatic, hold a large share of the
-    coloured pixels (>=15%) and are well separated in (a,b) space count as arms,
-    which keeps small coloured annotations, censor ticks and anti-aliasing from
-    inflating the tally and false-rejecting genuine 2-arm plots.
+    rejection. Only clusters that are chromatic and hold a large share of the
+    coloured pixels (>=15%) are kept; kept clusters are then merged when they
+    plainly belong to the same arm, and the number of merged groups is the count.
+
+    Two kept clusters are merged when EITHER they sit close together in (a,b)
+    space (Euclidean distance < ``sep`` -- catches a muted line and its
+    anti-aliased edge, whose hue angle is noisy near grey) OR they share a hue
+    (angular difference < ``hue_tol`` -- catches a saturated line and its
+    translucent confidence band / halo, which are the same colour at different
+    saturation and can drift well apart in (a,b)). Genuinely different colours
+    (e.g. blue vs orange) satisfy neither and stay separate, so true 3+ arm
+    figures are still counted as such.
     """
     mask = colorful & interior
     pts = lab[mask][:, 1:3].astype(np.float32)
@@ -339,9 +348,22 @@ def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0, kma
         kept = [cs[i] for i in range(kk)
                 if (abs(cs[i][0] - 128) > 8 or abs(cs[i][1] - 128) > 8)
                 and np.count_nonzero(km.labels_ == i) / n >= min_support]
-        if all(np.hypot(kept[a][0] - kept[b][0], kept[a][1] - kept[b][1]) > sep
-               for a in range(len(kept)) for b in range(a + 1, len(kept))):
-            best = max(best, len(kept))
+        m = len(kept)
+        parent = list(range(m))
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]; x = parent[x]
+            return x
+        for a in range(m):
+            for b in range(a + 1, m):
+                eu = np.hypot(kept[a][0] - kept[b][0], kept[a][1] - kept[b][1])
+                ha = np.arctan2(kept[a][1] - 128, kept[a][0] - 128)
+                hb = np.arctan2(kept[b][1] - 128, kept[b][0] - 128)
+                ang = abs((ha - hb + np.pi) % (2 * np.pi) - np.pi)
+                if eu < sep or ang < hue_tol:
+                    parent[find(a)] = find(b)
+        groups = len({find(i) for i in range(m)})
+        best = max(best, groups)
     return best
 
 
@@ -394,9 +416,17 @@ def neutral_curve_masks(rgb, gray, colorful, interior, txt, box, n_needed):
     neutral = (sat < 28) & (g < 240) & interior & ~colorful & ~txt
     neutral[max(T, B - 3):, :] = False                     # drop the X-axis baseline
     neutral[:, :min(R, L + 4)] = False                     # drop the Y-axis line
+    span, high = max(1, R - L), max(1, B - T)
+    # Strip near-full-width horizontal gridlines: they are neutral and line-like, so
+    # they survive component cleaning and pull the per-column trace toward round-number
+    # levels. A genuine Kaplan-Meier plateau never spans the whole plot width, so an
+    # opening with a wide horizontal kernel isolates only gridlines to subtract.
+    kw = max(15, int(0.7 * span))
+    horiz = cv2.morphologyEx(neutral.astype(np.uint8), cv2.MORPH_OPEN,
+                             cv2.getStructuringElement(cv2.MORPH_RECT, (kw, 1)))
+    neutral = neutral & ~horiz.astype(bool)
     if neutral.sum() < 50:
         return []
-    span, high = max(1, R - L), max(1, B - T)
 
     masks = [neutral]
     if n_needed >= 2:
