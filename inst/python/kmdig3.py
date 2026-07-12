@@ -397,6 +397,31 @@ def _clean_components(m, span, high):
     return clean.astype(bool)
 
 
+def _drop_boxes(mask, span, min_area=200, hole_frac=0.5):
+    """Remove hollow rectangular components (in-plot legend / annotation boxes).
+
+    A survival curve is an open path -- filling its contour adds almost nothing.
+    A boxed legend is a closed rectangle outline whose filled contour is nearly all
+    interior. Components that are mostly hollow and not near-full-width are dropped,
+    so a legend frame can no longer be traced as a spurious flat curve.
+    """
+    m = mask.astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    out = mask.copy()
+    for i in range(1, n):
+        area = st[i, cv2.CC_STAT_AREA]
+        if area < min_area or st[i, cv2.CC_STAT_WIDTH] >= 0.6 * span:
+            continue
+        comp = (lab == i).astype(np.uint8)
+        cnts, _ = cv2.findContours(comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        ff = np.zeros_like(comp)
+        cv2.drawContours(ff, cnts, -1, 1, -1)
+        fa = int(ff.sum())
+        if fa > 0 and (fa - area) / fa > hole_frac:
+            out[lab == i] = False
+    return out
+
+
 def neutral_curve_masks(rgb, gray, colorful, interior, txt, box, n_needed):
     """Masks for up to ``n_needed`` near-neutral (grayscale) curves.
 
@@ -425,6 +450,7 @@ def neutral_curve_masks(rgb, gray, colorful, interior, txt, box, n_needed):
     horiz = cv2.morphologyEx(neutral.astype(np.uint8), cv2.MORPH_OPEN,
                              cv2.getStructuringElement(cv2.MORPH_RECT, (kw, 1)))
     neutral = neutral & ~horiz.astype(bool)
+    neutral = _drop_boxes(neutral, span)                   # strip in-plot legend boxes
     if neutral.sum() < 50:
         return []
 
