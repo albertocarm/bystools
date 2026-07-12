@@ -1334,9 +1334,20 @@ server <- function(input, output, session) {
 
       shiny::removeNotification(id = id_auto)
       n_curves <- tryCatch(as.integer(meta$n_curves), error = function(e) NA)
+
+      # Second check: does each reconstructed curve actually follow its own detected
+      # pixels? The engine scores every curve by how often the trace strays from the
+      # real curve pixels (censor ticks included). A high score means a plateau or a
+      # mis-trace, so we warn and open the manual / LLM fallbacks rather than let a
+      # bad reconstruction pass silently.
+      offmask <- tryCatch(unlist(meta$curve_offmask), error = function(e) numeric(0))
+      fit_ok  <- tryCatch(isTRUE(meta$fit_ok), error = function(e) TRUE)
+      if (length(offmask) && !fit_ok) fit_ok <- FALSE
+      vals$fit_unreliable <- !fit_ok
+
       # Show the confirmation banner; if the read looks shaky, also surface fallbacks.
       vals$auto_done <- TRUE
-      if (n_rows < 2) vals$show_fallback <- TRUE
+      if (n_rows < 2 || !fit_ok) vals$show_fallback <- TRUE
       msg <- paste0(
         "Auto-digitization done",
         if (!is.na(n_curves)) paste0(" (", n_curves, " curve(s) detected)") else "",
@@ -1345,6 +1356,17 @@ server <- function(input, output, session) {
         else ". Numbers-at-risk not read reliably - fill the red cells, or use the other options."
       )
       shiny::showNotification(msg, type = if (n_rows >= 2) "message" else "warning", duration = 12)
+      if (!fit_ok) {
+        pct <- if (length(offmask)) round(100 * max(offmask, na.rm = TRUE)) else NA
+        shiny::showNotification(
+          shiny::HTML(paste0(
+            "<b>Heads up:</b> a reconstructed curve does not follow the detected curve ",
+            "pixels well",
+            if (!is.na(pct)) paste0(" (about ", pct, "% of it strays off the line)") else "",
+            ". Compare the red trace with your figure on the left. If it looks wrong, ",
+            "use the manual point-and-click or the LLM path (both are open in the sidebar).")),
+          type = "warning", duration = NULL)
+      }
     }, error = function(e) {
       shiny::removeNotification(id = id_auto)
       # route OCR-engine failures to the Tesseract install help

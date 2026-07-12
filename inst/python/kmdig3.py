@@ -586,6 +586,39 @@ def reconstruct(mask, L, R, thin_max=8):
     return xs, ys
 
 
+def offmask_fraction(mask, xs, ys, tol):
+    """Share of trace columns whose reconstructed y sits far (> ``tol`` px) from any
+    real curve pixel in that column. A faithful trace hugs its own pixels and scores
+    near 0; a trace that plateaus over empty space (e.g. isotonic bridging a gap, or
+    a mask polluted by a legend line) scores high. This is the quality oracle: censor
+    ticks and every other curve pixel vote on whether the trace is really on the line.
+    """
+    xi = xs.astype(int)
+    off = tot = 0
+    for k in range(len(xi)):
+        col = np.where(mask[:, xi[k]])[0]
+        if len(col) == 0:
+            continue
+        tot += 1
+        if np.min(np.abs(col - ys[k])) > tol:
+            off += 1
+    return off / tot if tot else 1.0
+
+
+def reconstruct_best(mask, L, R, tol, thin_options=(8, 20, 40)):
+    """Reconstruct at a few thinness settings and keep the trace that best follows
+    its own pixels (lowest off-mask fraction). Returns (xs, ys, score) or None."""
+    best = None
+    for tm in thin_options:
+        rec = reconstruct(mask, L, R, thin_max=tm)
+        if rec is None:
+            continue
+        s = offmask_fraction(mask, rec[0], rec[1], tol)
+        if best is None or s < best[2]:
+            best = (rec[0], rec[1], s)
+    return best
+
+
 def step_polyline(xs, ys):
     pts = []
     for i in range(len(xs)):
@@ -875,6 +908,9 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
     # so a 3+ arm figure can be rejected by the caller.
     n_arms = count_distinct_arms(lab, colorful, interior)
 
+    tol_fit = 0.04 * max(1, B - T)                          # px window for the quality oracle
+    qualities = []                                          # per-curve off-mask fraction
+
     centroids = find_colors(lab, colorful, interior, k=n_colors)   # n_colors from "N Curves"
     curves = []
     for idx, cen in enumerate(centroids):
@@ -888,12 +924,13 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
             if st[i, cv2.CC_STAT_AREA] >= 3:
                 clean[labc == i] = 1
         m = clean.astype(bool)
-        rec = reconstruct(m, L, R)
+        rec = reconstruct_best(m, L, R, tol_fit)
         if rec is None:
             continue
-        xs, ys = rec
+        xs, ys, q = rec
         col = tuple(int(v) for v in np.median(rgb[m], axis=0))
         curves.append((step_polyline(xs, ys), col, xs, ys, cen))
+        qualities.append(round(float(q), 3))
 
     # Neutral (grayscale) arms: invisible to the colour clustering above. Recover up
     # to the missing count -- this covers black-and-white figures (black + gray) as
@@ -905,10 +942,10 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
         gcols = np.where(gm.any(0))[0]
         if gm.sum() < 30 or len(gcols) < 0.45 * max(1, R - L):
             continue
-        rec = reconstruct(gm, L, R)
+        rec = reconstruct_best(gm, L, R, tol_fit)
         if rec is None:
             continue
-        xs, ys = rec
+        xs, ys, q = rec
         # A gridline reconstructs perfectly flat (~0 variation); any real survival
         # arm has steps, so a small threshold separates them while still admitting
         # near-flat high-survival arms.
@@ -916,6 +953,7 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
             col = tuple(int(v) for v in np.median(rgb[gm], axis=0))
             curves.append((step_polyline(xs, ys), col, xs, ys,
                            np.array([128.0, 128.0], np.float32)))
+            qualities.append(round(float(q), 3))
 
     at_risk = extract_at_risk(gray, L, R, B, xcal)
 
@@ -938,7 +976,9 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
                 xcal=None if not xcal else dict(m=xcal["m"], c=xcal["c"], ticks=xcal["ticks"]),
                 ycal=None if not ycal else dict(m=ycal["m"], c=ycal["c"], ticks=ycal["ticks"]),
                 n_curves=len(curves), arms_detected=int(n_arms),
-                too_many_arms=bool(n_arms >= 3), at_risk=at_risk)
+                too_many_arms=bool(n_arms >= 3), at_risk=at_risk,
+                curve_offmask=qualities,
+                fit_ok=bool(qualities) and max(qualities) <= 0.30)
     with open(prefix + "_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
@@ -948,6 +988,7 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
         print(f"  xcal ticks: {None if not xcal else [round(t[0],2) for t in xcal['ticks']]}")
         print(f"  ycal ticks: {None if not ycal else [round(t[0],2) for t in ycal['ticks']]}")
         print(f"  curves detected: {len(curves)}   arms_detected: {n_arms}   too_many_arms: {n_arms >= 3}")
+        print(f"  curve off-mask: {qualities}   fit_ok: {meta['fit_ok']}")
         for r in at_risk:
             print(f"  at-risk [{r['label']}]: {r['values']}  (times {r['times']})")
     return meta
