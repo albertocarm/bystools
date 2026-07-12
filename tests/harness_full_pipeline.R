@@ -37,7 +37,8 @@ if (is.null(rt) || nrow(rt) < 2 || Sys.getenv("KM2_FORCE_RT") == "1") {
     N_Risk_G1 = c(341,324,294,268,240,208,169,134, 96, 74, 52, 33),  # Durvalumab
     N_Risk_G2 = c(344,316,282,241,198,175,138,104, 76, 53, 37, 21)   # Placebo
   )
-  cat("(using injected TOPAZ at-risk)\n")
+  if (Sys.getenv("KM2_SHORT_RT") == "1") rt <- rt[rt$Time <= 21, ]   # simulate OCR that stops early
+  cat("(using injected TOPAZ at-risk, last time =", max(rt$Time), ")\n")
 }
 cat("risk table rows:", nrow(rt), "\n"); print(utils::head(rt, 4))
 
@@ -85,6 +86,8 @@ cm <- map_curves(raw, rt)
 
 reconstruct_ipd_safe <- function(km_df, nr_df) {
   km_df <- km_df[,c("time","St")]; nr_df <- nr_df[,c("time_tick","nrisk")]
+  tl<-suppressWarnings(max(nr_df$time_tick,na.rm=T)); tc<-suppressWarnings(max(km_df$time,na.rm=T))
+  if (is.finite(tc)&&is.finite(tl)&&tc>tl+1e-6) { nr_df<-rbind(nr_df,data.frame(time_tick=tc,nrisk=nr_df$nrisk[which.max(nr_df$time_tick)])); nr_df<-nr_df[order(nr_df$time_tick),] }
   eps<-1e-6; ticks<-sort(nr_df$time_tick); extra<-list()
   for (i in seq_len(length(ticks)-1)) {
     interior <- km_df$time[km_df$time>ticks[i]+eps & km_df$time<ticks[i+1]-eps]
@@ -119,6 +122,9 @@ if (!is.na(hr) && hr > 1) { final$arm <- factor(ifelse(final$arm=="Group 1","Gro
 fit <- survfit(Surv(time,status)~arm, data=final)
 med <- summary(fit)$table[,"median"]
 cat("\n=== RESULT ===\n"); print(med)
+cat(sprintf("max IPD time per arm: %s   (curves reach %.1f; risk table last time %.0f)\n",
+            paste(round(tapply(final$time, final$arm, max),1), collapse=" / "),
+            max(raw$time, na.rm=TRUE), max(rt$Time, na.rm=TRUE)))
 cat("real TOPAZ: Durvalumab median 12.9, Placebo 11.3, HR 0.76\n")
 cat("n per arm:", paste(table(final$arm),collapse=" / "), " events:", paste(tapply(final$status,final$arm,sum),collapse=" / "),"\n")
 # at-risk assignment check: which Group got which risk row

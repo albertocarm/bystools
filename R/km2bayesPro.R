@@ -1674,6 +1674,17 @@ server <- function(input, output, session) {
     km_df <- km_df[, c("time", "St"), drop = FALSE]
     nr_df <- nr_df[, c("time_tick", "nrisk"), drop = FALSE]
 
+    # Safety net: if the digitized curve runs past the last numbers-at-risk time,
+    # carry the last count forward to the curve's end so the tail is reconstructed
+    # instead of being cut off where an incomplete at-risk row happens to stop.
+    t_last  <- suppressWarnings(max(nr_df$time_tick, na.rm = TRUE))
+    t_curve <- suppressWarnings(max(km_df$time, na.rm = TRUE))
+    if (is.finite(t_curve) && is.finite(t_last) && t_curve > t_last + 1e-6) {
+      last_n <- nr_df$nrisk[which.max(nr_df$time_tick)]
+      nr_df  <- rbind(nr_df, data.frame(time_tick = t_curve, nrisk = last_n))
+      nr_df  <- nr_df[order(nr_df$time_tick), , drop = FALSE]
+    }
+
     eps   <- 1e-6
     ticks <- sort(nr_df$time_tick)
     extra <- list()
