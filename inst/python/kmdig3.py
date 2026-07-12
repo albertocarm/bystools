@@ -958,8 +958,14 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
     at_risk = extract_at_risk(gray, L, R, B, xcal)
 
     overlay = render_overlay(rgb, [(p, c) for p, c, *_ in curves])
-    clean_img = render_clean((H, W), (L, R, T, B),
-                             [(p, c) for p, c, *_ in curves], xcal, ycal)
+    # Redraw the clean image with high-contrast, well-separated colours. The arms are
+    # already isolated here, so giving each a distinct colour lets the downstream
+    # digitizer separate them cleanly even when the original arms shared a hue
+    # (e.g. dark vs light purple), which it otherwise merges into one curve.
+    clean_palette = [(200, 30, 30), (30, 30, 200), (20, 140, 40), (190, 120, 10)]
+    clean_curves = [(p, clean_palette[i % len(clean_palette)])
+                    for i, (p, *_rest) in enumerate(curves)]
+    clean_img = render_clean((H, W), (L, R, T, B), clean_curves, xcal, ycal)
     cv2.imwrite(prefix + "_overlay.png", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
     cv2.imwrite(prefix + "_clean.png", cv2.cvtColor(clean_img, cv2.COLOR_RGB2BGR))
 

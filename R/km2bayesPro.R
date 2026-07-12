@@ -1284,6 +1284,28 @@ server <- function(input, output, session) {
         vals$auto_clean_path <- clean_png
         vals$mode <- "manual"
       }
+
+      # Prefer the engine's own separated curves. kmdig3 already splits the two arms
+      # (by hue and luminance) and scores each trace; re-digitizing the clean image
+      # would re-merge same-hue arms (dark vs light purple) into one. So when the
+      # self-check passes, load the engine's curves directly and skip the re-digitize.
+      # If the check fails, leave curves unset so the manual/SurvdigitizeR path runs.
+      csv_file <- paste0(prefix, ".csv")
+      vals$manual_raw_data <- NULL
+      if (isTRUE(tryCatch(isTRUE(meta$fit_ok), error = function(e) FALSE)) &&
+          file.exists(csv_file)) {
+        cur <- tryCatch(utils::read.csv(csv_file), error = function(e) NULL)
+        if (!is.null(cur) && all(c("x_val", "y_val", "curve") %in% names(cur))) {
+          cur <- cur[!is.na(cur$x_val) & cur$x_val >= 0, , drop = FALSE]
+          vals$manual_raw_data <- data.frame(
+            time     = as.numeric(cur$x_val),
+            St       = as.numeric(cur$y_val),
+            survival = as.numeric(cur$y_val),
+            curve    = as.integer(gsub("[^0-9]", "", cur$curve))
+          )
+          vals$curve_mapping <- NULL
+        }
+      }
       overlay_png <- paste0(prefix, "_overlay.png")
       vals$overlay_img_path <- if (file.exists(overlay_png)) overlay_png else NULL
 
