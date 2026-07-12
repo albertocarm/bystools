@@ -695,6 +695,142 @@ ui <- shiny::tagList(
       ),
 
       # ==============================================================================
+      # How it works: a plain-language guide to the whole workflow.
+      # ==============================================================================
+      bslib::nav_panel("How it works",
+        shiny::div(class = "container-fluid py-3", style = "max-width: 900px; margin: 0 auto;",
+
+          bslib::card(
+            bslib::card_header("What this tool does"),
+            bslib::card_body(shiny::HTML(
+              "<p>KM2bayes Pro takes a two-arm survival comparison and turns it into
+               patient-level data, then fits a Bayesian cure model on top of it. You can
+               start from your own trial dataset or from a published Kaplan-Meier figure.
+               Everything after that first step - the accuracy check, the stability
+               read-out, the model - runs on the same reconstructed data, so the quality
+               of the input is what really decides the quality of the answer.</p>"
+            ))
+          ),
+
+          bslib::card(
+            bslib::card_header("Best case: start from the data"),
+            bslib::card_body(shiny::HTML(
+              "<p>If you are the sponsor, a collaborator, or you otherwise hold the
+               individual patient data, use the left option on the home screen and upload
+               it. This is always the better route: there is nothing to reconstruct and
+               nothing to approximate, so the curves, the hazard ratio and the medians are
+               exact.</p>
+               <p>Three columns are enough: <b>time</b>, <b>event</b> (1 for the event,
+               0 for censored) and <b>arm</b>. CSV, Excel, RDS and RDA all work, and the
+               column names can be in your own wording (time / months / os, status /
+               dead, group / treatment, and so on). When you upload data the app skips
+               digitization entirely and goes straight to the analysis.</p>"
+            ))
+          ),
+
+          bslib::card(
+            bslib::card_header("Reading it from a figure"),
+            bslib::card_body(shiny::HTML(
+              "<p>When you only have the published figure, upload a clean image of a
+               two-arm Kaplan-Meier plot that also shows the numbers-at-risk table
+               underneath. The engine reads both curves and the at-risk counts, and from
+               those it rebuilds the individual patients with the standard Guyot method.
+               The numbers at risk are what pin down how many events happen and when, so a
+               figure without them can only be guessed at.</p>
+               <p>It works best with two curves in clearly different colours, legible axis
+               numbers, and as little clutter as possible over the plotting area.
+               Confidence bands are fine. In-plot legends, annotation lines and low
+               resolution make it harder.</p>
+               <p>After you press <b>Auto-digitize</b>, check the result before you trust
+               it. The reconstructed curves are drawn on top of your image so you can see
+               whether they follow the real lines, and the numbers at risk are pre-filled
+               in an editable grid. Fix any cell the reader got wrong, then press
+               <b>Confirm and Analyze</b>.</p>"
+            ))
+          ),
+
+          bslib::card(
+            bslib::card_header("When the figure does not read cleanly"),
+            bslib::card_body(shiny::HTML(
+              "<p>Some figures are hard for an automatic reader: a grey curve, a busy
+               panel, two very similar colours, an in-plot legend. Two fallbacks cover
+               those cases.</p>
+               <ul>
+                 <li><b>Manual point-and-click.</b> You place the points along each curve
+                 yourself. Slower, but it always works and you stay in control.</li>
+                 <li><b>LLM preprocess.</b> Open the prompt, hand your figure to any vision
+                 model, and it returns a cleaned version with the curves recoloured and the
+                 legend and annotations stripped out, plus the four data rows. Upload that
+                 cleaned image and the automatic reader handles it easily. This is usually
+                 the quickest route for a difficult figure.</li>
+               </ul>
+               <p>Neither is a trick to rescue a bad reconstruction. They are just two ways
+               to hand the engine a clean input.</p>"
+            ))
+          ),
+
+          bslib::card(
+            bslib::card_header("Accuracy bench: can I trust this reconstruction?"),
+            bslib::card_body(shiny::HTML(
+              "<p>This tab answers exactly that. Paste the hazard ratio with its confidence
+               interval, and the medians, as the paper reports them. The app compares them
+               against what your reconstruction produces and shows the error live.</p>
+               <p>A hazard ratio within <b>5%</b> of the published value is as good as
+               indistinguishable; within <b>10%</b> is fine for most uses; beyond that,
+               revise the numbers at risk or re-digitize before you rely on it. If a median
+               was not reached, leave it blank and the hazard-ratio check still works. Run
+               this before you lean on anything downstream.</p>"
+            ))
+          ),
+
+          bslib::card(
+            bslib::card_header("Stability metrics: how much can I believe?"),
+            bslib::card_body(shiny::HTML(
+              "<p>The stability tab tells you how mature the data is and how far you can
+               push the model. It reports the follow-up relative to the median, the number
+               of events, and a few instability measures, and it plots the fitted cure
+               model against the Kaplan-Meier curve.</p>
+               <p>Short follow-up or few events means the tail of the curve, and therefore
+               the cure fraction, is poorly determined. The read-out flags that and points
+               you to a matching tail assumption for the Bayesian step, and it helps you
+               decide whether the two arms should share one shape or get a shape each.
+               Think of it as the check that stops you over-reading an immature curve.</p>"
+            ))
+          ),
+
+          bslib::card(
+            bslib::card_header("The Bayesian model and how to read it"),
+            bslib::card_body(shiny::HTML(
+              "<p>The model is a <b>mixture cure model</b>. It splits each arm into a
+               fraction of patients who are effectively cured (their risk of the event
+               flattens out) and the rest, whose survival follows a Weibull distribution.
+               Fitting it the Bayesian way means every quantity comes back as a full
+               posterior, so you get honest uncertainty instead of a single point.</p>
+               <p>What to look at:</p>
+               <ul>
+                 <li><b>Cure fraction.</b> The estimated share left long-term event-free in
+                 each arm, with its credible interval. This is the number the whole model
+                 exists to produce.</li>
+                 <li><b>Posterior densities.</b> The plausible range for each parameter.
+                 Narrow means confident, wide means uncertain, and the overlap between arms
+                 tells you how separable they really are.</li>
+                 <li><b>Model fit.</b> The predicted curve over the Kaplan-Meier. Close
+                 tracking means the model describes your data; a gap in the tail sends you
+                 back to the tail assumption and the stability tab.</li>
+                 <li><b>Diagnostics.</b> Convergence (R-hat near 1, no divergences). If
+                 these look off the estimates are not settled yet, so rerun with more
+                 iterations.</li>
+               </ul>
+               <p>The <b>tail assumption</b> you set on the left is your prior belief about
+               long-term behaviour. On mature data it barely moves the result; on immature
+               data it does the heavy lifting, which is precisely why the stability tab is
+               there to guide the choice.</p>"
+            ))
+          )
+        )
+      ),
+
+      # ==============================================================================
       # Accuracy bench: compare the reconstruction against published values.
       # ==============================================================================
       bslib::nav_panel("Accuracy bench",
