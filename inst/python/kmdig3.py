@@ -305,16 +305,26 @@ def calibrate_x(gray, L, R, B, band_h):
 def find_colors(lab, colorful, interior, k=None, kmax=4):
     """Cluster the coloured pixels into ``k`` curve colours (default 2).
 
-    Returns the chromatic cluster centroids. ``k`` is normally the "N Curves"
-    control, so the extraction targets exactly that many coloured arms.
+    Clusters by hue in ``(a, b)`` (so a line and its translucent confidence band,
+    which share a hue, stay in one cluster) and returns each chromatic cluster's
+    centroid as ``(L, a, b)`` -- the mean lightness is carried along so two arms of
+    the same hue but different lightness (e.g. dark vs light purple) can be split
+    by luminance at the masking stage.
     """
     mask = colorful & interior
-    pts = lab[mask][:, 1:3].astype(np.float32)
+    pts = lab[mask].astype(np.float32)                     # (n, 3) = L, a, b
     if len(pts) < 20:
         return []
-    kk = min(max(1, k if k else 2), max(1, len(np.unique(pts, axis=0))))
-    km = KMeans(n_clusters=kk, n_init=5, random_state=0).fit(pts)
-    return [c for c in km.cluster_centers_ if (abs(c[0] - 128) > 8 or abs(c[1] - 128) > 8)]
+    ab = pts[:, 1:3]
+    kk = min(max(1, k if k else 2), max(1, len(np.unique(ab, axis=0))))
+    km = KMeans(n_clusters=kk, n_init=5, random_state=0).fit(ab)
+    out = []
+    for i in range(kk):
+        c = km.cluster_centers_[i]
+        if abs(c[0] - 128) > 8 or abs(c[1] - 128) > 8:
+            sel = km.labels_ == i
+            out.append(np.array([float(pts[sel, 0].mean()), c[0], c[1]], np.float32))
+    return out
 
 
 def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0,
@@ -367,10 +377,30 @@ def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0,
     return best
 
 
-def line_mask_for_color(rgb, lab, centroid, colorful, interior, tol=20):
-    ab = lab[:, :, 1:3].astype(np.float32)
-    dist = np.sqrt(((ab - centroid) ** 2).sum(2))
+def line_mask_for_color(rgb, lab, centroid, others, colorful, interior, tol=20):
+    """Mask the pixels of one curve colour.
+
+    ``centroid`` and ``others`` are ``(L, a, b)`` centroids. A pixel is admitted
+    if it is within ``tol`` of this centroid in hue ``(a, b)`` AND this centroid is
+    its nearest among all of them in weighted ``(L, a, b)`` space. The luminance
+    tie-break separates two same-hue arms (dark vs light purple) that a pure hue
+    radius would lump together, while single-hue figures (``others`` empty) behave
+    exactly as before.
+    """
+    Lab = lab.astype(np.float32)
+    ab = Lab[:, :, 1:3]
+    dist = np.sqrt(((ab - centroid[1:3]) ** 2).sum(2))
     hue = (dist < tol) & colorful & interior
+    if others:
+        wL = 0.5                                            # weight L so it counts with (a,b)
+        def dlab(cen):
+            return ((wL * (Lab[:, :, 0] - cen[0])) ** 2
+                    + (ab[:, :, 0] - cen[1]) ** 2 + (ab[:, :, 1] - cen[2]) ** 2)
+        dme = dlab(centroid)
+        win = np.ones(hue.shape, bool)
+        for o in others:
+            win &= dme <= dlab(o)
+        hue &= win
     if hue.sum() < 10:
         return hue
     ys, xs = np.where(hue)
@@ -833,8 +863,9 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
 
     centroids = find_colors(lab, colorful, interior, k=n_colors)   # n_colors from "N Curves"
     curves = []
-    for cen in centroids:
-        m = line_mask_for_color(rgb, lab, cen, colorful, interior, tol=color_tol)
+    for idx, cen in enumerate(centroids):
+        others = [c for j, c in enumerate(centroids) if j != idx]
+        m = line_mask_for_color(rgb, lab, cen, others, colorful, interior, tol=color_tol)
         m = m & ~txt                                        # remove colored labels
         cu = m.astype(np.uint8)
         n, labc, st, _ = cv2.connectedComponentsWithStats(cu, 8)
