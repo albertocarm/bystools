@@ -810,6 +810,8 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
 
     yband = max(30, int(.13 * W))
     ycal, fraction = calibrate_y(gray, L_axis, T0, yband)
+    if ycal and not ycal.get("m"):
+        ycal = None                                        # degenerate slope -> no calibration
     if ycal:
         tmax = max(v for v, _ in ycal["ticks"])
         topval = max(1.0 if fraction else 100.0, tmax)
