@@ -303,28 +303,42 @@ def calibrate_x(gray, L, R, B, band_h):
 # colors and line masks
 # --------------------------------------------------------------------------- #
 def find_colors(lab, colorful, interior, k=None, kmax=4):
-    """Cluster the coloured pixels into ``k`` curve colours (default 2).
+    """Find up to ``k`` distinct curve colours, returned as ``(L, a, b)`` centroids.
 
-    Clusters by hue in ``(a, b)`` (so a line and its translucent confidence band,
-    which share a hue, stay in one cluster) and returns each chromatic cluster's
-    centroid as ``(L, a, b)`` -- the mean lightness is carried along so two arms of
-    the same hue but different lightness (e.g. dark vs light purple) can be split
-    by luminance at the masking stage.
+    Over-clusters the coloured pixels by hue in ``(a, b)`` (kmax clusters), keeps
+    those that are chromatic *by magnitude* (so a muted teal at a=121,b=123 is not
+    dropped by a per-channel threshold) and hold real support, then merges clusters
+    that are the same colour -- close in weighted ``(L, a, b)`` -- so a single arm's
+    anti-aliased edge does not become a second colour, while two arms that differ in
+    hue OR in lightness (dark vs light purple) stay separate. The mean lightness is
+    carried so same-hue arms can be split by luminance at the masking stage.
     """
     mask = colorful & interior
     pts = lab[mask].astype(np.float32)                     # (n, 3) = L, a, b
-    if len(pts) < 20:
+    n = len(pts)
+    if n < 20:
         return []
     ab = pts[:, 1:3]
-    kk = min(max(1, k if k else 2), max(1, len(np.unique(ab, axis=0))))
+    want = max(1, k if k else 2)
+    kk = min(kmax, max(want, 2), max(1, len(np.unique(ab, axis=0))))
     km = KMeans(n_clusters=kk, n_init=5, random_state=0).fit(ab)
-    out = []
+    cand = []
     for i in range(kk):
+        sel = km.labels_ == i
+        cnt = int(sel.sum())
         c = km.cluster_centers_[i]
-        if abs(c[0] - 128) > 8 or abs(c[1] - 128) > 8:
-            sel = km.labels_ == i
-            out.append(np.array([float(pts[sel, 0].mean()), c[0], c[1]], np.float32))
-    return out
+        # chromatic by magnitude, and enough pixels to be a real trace (absolute,
+        # not a fraction -- a thin arm must not be dropped just because another
+        # region is huge).
+        if np.hypot(c[0] - 128, c[1] - 128) > 6.0 and cnt >= 100:
+            cand.append((cnt, float(pts[sel, 0].mean()), float(c[0]), float(c[1])))
+    cand.sort(reverse=True)                                # most pixels first
+    merged = []
+    for sup, Lm, am, bm in cand:
+        if all(np.sqrt((0.4 * (Lm - m[0])) ** 2 + (am - m[1]) ** 2 + (bm - m[2]) ** 2) >= 12.0
+               for m in merged):
+            merged.append((Lm, am, bm))
+    return [np.array(m, np.float32) for m in merged[:want]]
 
 
 def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0,
