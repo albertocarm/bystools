@@ -250,7 +250,19 @@ def calibrate_y(gray, L_band, T_rough, yband):
     fraction = len(dotted) >= 3
     toks = [t for t in dec if 0 <= t["val"] <= 1.5] if fraction \
         else _ocr_numeric_pos(crop, x0, y0, allow_dot=False)
-    return _fit_axis(_dedup(toks, "yc")), fraction
+    # Fit the confident tokens first: garbage below the axis (numbers-at-risk digits
+    # misread at conf ~0 as tiny values) can otherwise out-vote the true labels in
+    # the RANSAC -- a near-flat line through several junk values scores more inliers
+    # than the real axis line. A survival axis decreases with pixel y, so a valid
+    # fit must have m < 0; fall back to all tokens only when the confident subset
+    # cannot produce one.
+    strong = [t for t in toks if t["conf"] >= 30]
+    fit = _fit_axis(_dedup(strong, "yc")) if len(strong) >= 2 else None
+    if fit is None or fit["m"] >= 0:
+        alt = _fit_axis(_dedup(toks, "yc"))
+        if fit is None or (alt is not None and alt["m"] < 0):
+            fit = alt
+    return fit, fraction
 
 
 def calibrate_x(gray, L, R, B, band_h):
@@ -391,6 +403,44 @@ def count_distinct_arms(lab, colorful, interior, min_support=0.15, sep=35.0,
     return best
 
 
+def _peel_ci_band(light, hue):
+    """If the mask is thick enough to carry a translucent CI band, keep the line:
+    the band is light and the line drawn over it is dark, so an Otsu split on the
+    lightness channel ``light`` (LAB L for coloured curves, gray for neutral ones)
+    separates them. Thin (line-only) masks pass through untouched."""
+    if hue.sum() < 10:
+        return hue
+    ys, xs = np.where(hue)
+    xspan = max(1, xs.max() - xs.min())
+    fat = hue.sum() / xspan > 8.0                          # CI band present if "thick"
+    if not fat:
+        return hue
+    # translucent band is light; the line sits above and is dark -> separate by L
+    Lch = light.astype(np.float32)
+    thr, _ = cv2.threshold(Lch[hue].astype(np.uint8), 0, 255,
+                           cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    line = hue & (Lch <= thr)
+    return line if line.sum() >= 0.04 * hue.sum() else hue
+
+
+def _same_family(c1, c2, hue_tol=0.70, gray_chroma=10.0, gray_sep=20.0):
+    """True when two colour centroids belong to one arm's colour family (its line
+    plus a translucent CI band or anti-aliased halo) rather than to two distinct
+    arms. The test is hue angle: a band or halo keeps its line's hue at lower
+    saturation, while two muted arms of different colour (e.g. pale blue vs pink)
+    can sit close together in ``(a, b)`` yet far apart in angle -- plain distance
+    would wrongly merge them. Only when a centroid is so close to gray that its
+    hue angle is meaningless does ``(a, b)`` proximity decide."""
+    ch1 = np.hypot(c1[1] - 128, c1[2] - 128)
+    ch2 = np.hypot(c2[1] - 128, c2[2] - 128)
+    if min(ch1, ch2) < gray_chroma:
+        return np.hypot(c1[1] - c2[1], c1[2] - c2[2]) < gray_sep
+    h1 = np.arctan2(c1[2] - 128, c1[1] - 128)
+    h2 = np.arctan2(c2[2] - 128, c2[1] - 128)
+    ang = abs((h1 - h2 + np.pi) % (2 * np.pi) - np.pi)
+    return ang < hue_tol
+
+
 def line_mask_for_color(rgb, lab, centroid, others, colorful, interior, tol=20):
     """Mask the pixels of one curve colour.
 
@@ -415,19 +465,7 @@ def line_mask_for_color(rgb, lab, centroid, others, colorful, interior, tol=20):
         for o in others:
             win &= dme <= dlab(o)
         hue &= win
-    if hue.sum() < 10:
-        return hue
-    ys, xs = np.where(hue)
-    xspan = max(1, xs.max() - xs.min())
-    fat = hue.sum() / xspan > 8.0                          # CI band present if "thick"
-    if not fat:
-        return hue
-    # translucent band is light; the line sits above and is dark -> separate by L
-    Lch = lab[:, :, 0].astype(np.float32)
-    thr, _ = cv2.threshold(Lch[hue].astype(np.uint8), 0, 255,
-                           cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    line = hue & (Lch <= thr)
-    return line if line.sum() >= 0.04 * hue.sum() else hue
+    return _peel_ci_band(lab[:, :, 0], hue)
 
 
 def _clean_components(m, span, high):
@@ -507,6 +545,22 @@ def neutral_curve_masks(rgb, gray, colorful, interior, txt, box, n_needed):
             if c1 - c0 >= 50:                              # two distinct shades (black vs gray)
                 thr = 0.5 * (c0 + c1)
                 masks = [neutral & (g <= thr), neutral & (g > thr)]
+    elif masks[0].any():
+        # A single gray arm may carry its own translucent CI band (light gray around
+        # a darker gray line): peel it exactly as for coloured curves, so the trace
+        # follows the line rather than the band's median. Only in the single-arm
+        # case -- a black+gray two-arm mask must keep both shades for the split.
+        # Accept the peel only when it still yields a full-length structure: a mask
+        # that is "fat" from censor-tick clusters rather than a band is unimodal in
+        # lightness, and the Otsu split shatters it into fragments instead of
+        # isolating a line -- keep the original mask in that case.
+        peeled = _peel_ci_band(gray, masks[0])
+        if peeled.sum() < masks[0].sum():
+            keep = _clean_components(peeled, span, high)
+            ok = keep.any() and np.count_nonzero(keep.any(0)) >= \
+                0.7 * max(1, np.count_nonzero(masks[0].any(0)))
+            if ok:
+                masks = [peeled]
     return [mm for mm in (_clean_components(m, span, high) for m in masks[:n_needed]) if mm.any()]
 
 
@@ -587,18 +641,26 @@ def reconstruct(mask, L, R, thin_max=8):
 
 
 def offmask_fraction(mask, xs, ys, tol):
-    """Share of trace columns whose reconstructed y sits far (> ``tol`` px) from any
-    real curve pixel in that column. A faithful trace hugs its own pixels and scores
-    near 0; a trace that plateaus over empty space (e.g. isotonic bridging a gap, or
-    a mask polluted by a legend line) scores high. This is the quality oracle: censor
-    ticks and every other curve pixel vote on whether the trace is really on the line.
+    """Share of mask columns whose trace y (step-held between sampled columns) sits
+    far (> ``tol`` px) from every real curve pixel in that column. A faithful trace
+    hugs its own pixels and scores near 0; a trace that plateaus over empty space
+    (e.g. isotonic bridging a gap, or a mask polluted by a legend line) scores high.
+    Every column holding mask pixels votes, including those the trace never sampled,
+    so a sparse trace that skips part of its own curve and bridges it with a long
+    flat segment is penalised by the columns it skipped. This is the quality oracle:
+    censor ticks and every other curve pixel vote on whether the trace is really on
+    the line.
     """
+    if len(xs) == 0:
+        return 1.0
     xi = xs.astype(int)
+    cols = np.where(mask.any(0))[0]
     off = tot = 0
-    for k in range(len(xi)):
-        col = np.where(mask[:, xi[k]])[0]
+    for x in cols:
+        col = np.where(mask[:, x])[0]
         if len(col) == 0:
             continue
+        k = min(max(int(np.searchsorted(xi, x, side="right")) - 1, 0), len(ys) - 1)
         tot += 1
         if np.min(np.abs(col - ys[k])) > tol:
             off += 1
@@ -782,7 +844,11 @@ def extract_at_risk(gray, L, R, B, xcal):
         times = [round(xcal["m"] * xc + xcal["c"], 2) for xc in xcs] if xcal else None
         if times is not None:                               # X-axis label row
             rng = max(max(times) - min(times), 1.0)
-            if np.mean([abs(v - t) for v, t in zip(vals, times)]) <= 0.06 * rng:
+            # The median deviation identifies the row: a tick row with a couple of
+            # OCR misreads (e.g. a "48" read as "1") still matches the axis at most
+            # positions, so a few large deviations must not let it through as a
+            # numbers-at-risk row.
+            if np.median([abs(v - t) for v, t in zip(vals, times)]) <= 0.06 * rng:
                 continue
         if axis_vals and set(round(v) for v in vals) <= axis_vals:
             continue
@@ -887,14 +953,21 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
 
     yband = max(30, int(.13 * W))
     ycal, fraction = calibrate_y(gray, L_axis, T0, yband)
-    if ycal and not ycal.get("m"):
-        ycal = None                                        # degenerate slope -> no calibration
+    if ycal and (not ycal.get("m") or ycal["m"] >= 0):
+        ycal = None                    # degenerate or wrong-sign slope -> no calibration
     if ycal:
         tmax = max(v for v, _ in ycal["ticks"])
         topval = max(1.0 if fraction else 100.0, tmax)
         T = int(round((topval - ycal["c"]) / ycal["m"]))
         B = int(round((0.0 - ycal["c"]) / ycal["m"]))
-        T = max(0, min(T, H - 2)); B = max(T + 10, min(B, H - 1))
+        # A mis-calibration (labels mis-OCRed) can throw the recomputed box far
+        # outside the detected frame; treat it as no calibration rather than let
+        # the clamps collapse the interior to a sliver.
+        if not (-0.2 * H <= T < B <= 1.2 * H) or (B - T) < 0.2 * H:
+            ycal = None
+            T, B = T0, B0
+        else:
+            T = max(0, min(T, H - 2)); B = max(T + 10, min(B, H - 1))
     else:
         T, B = T0, B0
 
@@ -904,18 +977,65 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
 
     txt = ocr_text_mask(gray, rgb)
 
+    # Strip hollow in-plot annotation boxes (a coloured callout frame such as an
+    # "HR 0.66" panel) from the colour analysis, exactly as the neutral path already
+    # does. Such a frame holds thousands of chromatic pixels of its own colour, so it
+    # would otherwise be counted as a third arm -- rejecting a perfectly good two-arm
+    # figure -- and be traced as a spurious curve. Curves survive: they are open
+    # paths (their filled contour adds almost nothing) and usually span the plot.
+    colorful_arms = _drop_boxes(colorful & interior, max(1, R - L))
+
     # This tool supports two-arm studies only. Count the real coloured arms up front
     # so a 3+ arm figure can be rejected by the caller.
-    n_arms = count_distinct_arms(lab, colorful, interior)
+    n_arms = count_distinct_arms(lab, colorful_arms, interior)
 
     tol_fit = 0.04 * max(1, B - T)                          # px window for the quality oracle
     qualities = []                                          # per-curve off-mask fraction
 
-    centroids = find_colors(lab, colorful, interior, k=n_colors)   # n_colors from "N Curves"
+    centroids = find_colors(lab, colorful_arms, interior, k=n_colors)  # n_colors from "N Curves"
+
+    # One-colour-family guard: two "colours" that are really a single arm's line
+    # plus its lighter companion (translucent CI band, anti-aliased halo) must not
+    # fill both curve slots -- that traces the same arm twice and silently drops
+    # the other arm, which in such figures is a neutral gray one the colour
+    # clustering cannot see. When the pair is one family AND a genuine gray arm
+    # exists (wide and clearly descending), collapse the family to one colour --
+    # the union of both clusters, band-peeled down to the line -- so the neutral
+    # recovery below picks up the gray arm. With no gray arm the pair stands as
+    # two arms split by luminance (dark vs light purple).
+    pairs = None
+    if len(centroids) == 2 and _same_family(centroids[0], centroids[1]):
+        for gm in neutral_curve_masks(rgb, gray, colorful, interior, txt,
+                                      (L, R, T, B), 1):
+            gcols = np.where(gm.any(0))[0]
+            if gm.sum() < 30 or len(gcols) < 0.45 * max(1, R - L):
+                continue
+            rec = reconstruct_best(gm, L, R, tol_fit)
+            # The gray candidate must be a *reconstructible* arm: wide, clearly
+            # descending AND faithful to its own pixels. Stray neutral structure
+            # (statistics-table rules, legend remains) can span the plot and
+            # "descend", but its trace strays off its own mask -- reject it, or
+            # a real same-hue second arm would be demoted to a CI band.
+            if rec is None or rec[2] > 0.30 \
+                    or (rec[1].max() - rec[1].min()) < 0.08 * max(1, B - T):
+                continue
+            ab = lab[:, :, 1:3].astype(np.float32)
+            hue = np.zeros(colorful.shape, bool)
+            for cen in centroids:
+                hue |= np.sqrt(((ab - cen[1:3]) ** 2).sum(2)) < color_tol
+            hue &= colorful_arms & interior
+            union = _peel_ci_band(lab[:, :, 0], hue)
+            if union.sum() >= 10:
+                pairs = [(min(centroids, key=lambda c: c[0]), union)]
+            break
+    if pairs is None:
+        pairs = [(cen, line_mask_for_color(rgb, lab, cen,
+                                           [c for j, c in enumerate(centroids) if j != i],
+                                           colorful_arms, interior, tol=color_tol))
+                 for i, cen in enumerate(centroids)]
+
     curves = []
-    for idx, cen in enumerate(centroids):
-        others = [c for j, c in enumerate(centroids) if j != idx]
-        m = line_mask_for_color(rgb, lab, cen, others, colorful, interior, tol=color_tol)
+    for cen, m in pairs:
         m = m & ~txt                                        # remove colored labels
         cu = m.astype(np.uint8)
         n, labc, st, _ = cv2.connectedComponentsWithStats(cu, 8)

@@ -82,6 +82,63 @@ bystools::km2_install_all()   # R deps + Python environment + Tesseract OCR
 
 > You don't have to memorise these: if the automatic digitizer can't find the engine, the app shows in-app instructions with exactly the command(s) you need, listing only what is missing.
 
+### If the installer fails — manual installation
+
+`km2_install_all()` covers the usual setups, but corporate machines, restricted networks and unusual Python installations can defeat it. The engine is just **Python 3 with four libraries** plus **Tesseract OCR**, so it can always be installed by hand.
+
+**1. Python libraries.** From R, into an isolated environment:
+
+```r
+reticulate::virtualenv_create("r-bystools")
+reticulate::virtualenv_install(
+  "r-bystools",
+  packages = c("numpy", "opencv-python-headless", "pytesseract", "scikit-learn")
+)
+```
+
+If `virtualenv_create()` fails because no base Python is found, install one with `reticulate::install_python()` and repeat. If virtualenvs are unavailable altogether, conda works too:
+
+```r
+reticulate::conda_create("r-bystools")
+reticulate::conda_install(
+  "r-bystools",
+  packages = c("numpy", "opencv-python-headless", "pytesseract", "scikit-learn"),
+  pip = TRUE
+)
+```
+
+You can equally use a Python installation you already have — install the same four packages with `pip` in a terminal, and bystools will pick it up:
+
+```
+pip install numpy opencv-python-headless pytesseract scikit-learn
+```
+
+**2. Tesseract OCR** (a normal desktop application, not an R package):
+
+| Platform | Command / action |
+|----------|------------------|
+| Windows | Download `tesseract-ocr-w64-setup-5.x.x.exe` from the [University of Mannheim builds](https://digi.bib.uni-mannheim.de/tesseract/) and run it with default settings. Keep the default folder — bystools finds it automatically, so you never need to edit `PATH`. |
+| macOS | `brew install tesseract` |
+| Linux (Debian/Ubuntu) | `sudo apt-get install tesseract-ocr` |
+
+**3. Restart R** and open the app. To confirm the engine is visible:
+
+```r
+reticulate::use_virtualenv("r-bystools", required = FALSE)
+reticulate::py_module_available("cv2")   # TRUE when the Python side is ready
+Sys.which("tesseract")                   # non-empty when the OCR engine is on PATH
+```
+
+Even with no engine at all, the app remains fully usable: point-and-click digitization, LLM preprocessing, manual data entry and every modelling module work without Python or Tesseract.
+
+---
+
+## Reporting figures that fail to digitize
+
+The automatic digitizer is tuned on real published figures, and each new plotting style teaches it something. If a Kaplan-Meier figure is digitized poorly — a missing arm, a trace that drifts off the curve, a numbers-at-risk table read incorrectly — please **send us the figure**.
+
+Open an [issue](https://github.com/albertocarm/bystools/issues) with the image attached, or email it to [carmonab@um.es](mailto:carmonab@um.es). Please include the source (journal, article, figure number) where possible. Figures reported this way are added to the regression test set, so a fix for your figure is checked against every previously working one.
+
 ---
 
 ## Quick Start
