@@ -137,7 +137,15 @@ Even with no engine at all, the app remains fully usable: point-and-click digiti
 
 The automatic digitizer is tuned on real published figures, and each new plotting style teaches it something. If a Kaplan-Meier figure is digitized poorly — a missing arm, a trace that drifts off the curve, a numbers-at-risk table read incorrectly — please **send us the figure**.
 
-Open an [issue](https://github.com/albertocarm/bystools/issues) with the image attached, or email it to [carmonab@um.es](mailto:carmonab@um.es). Please include the source (journal, article, figure number) where possible. Figures reported this way are added to the regression test set, so a fix for your figure is checked against every previously working one.
+Open an [issue](https://github.com/albertocarm/bystools/issues) with the image attached, or email it to [carmonab@um.es](mailto:carmonab@um.es). Please include the source (journal, article, figure number) where possible.
+
+Reported figures go into the **curve archive** in [`curves/`](curves/), the regression suite for the digitizer. Each figure gets a record holding its source, its checksum and the result the engine is expected to produce, so a fix made for one figure is checked against every figure that already worked:
+
+```
+python tests/curve_regression.py     # or, from R:  source("tests/curve_regression.R")
+```
+
+A figure the engine cannot yet handle is recorded as a `known-failure`: it is replayed on every run and the suite reports the day it starts working, so nothing that was reported is quietly lost. The records are versioned; the published figures themselves are held locally rather than redistributed, and a record whose image is absent is skipped. See [`curves/README.md`](curves/README.md) for how the archive is organised and how to add to it.
 
 ---
 

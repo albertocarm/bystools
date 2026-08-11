@@ -1,0 +1,768 @@
+{
+  "version": 1,
+  "tolerance": {
+    "survival_pct": 2.0,
+    "offmask": 0.1
+  },
+  "figures": [
+    {
+      "id": "keynote-b15-event-free-survival",
+      "file": "keynote-b15-event-free-survival.png",
+      "sha256": "1537e7ed5ad830f164035c5a1de3f6e9610b46be4f696c41ad3e7841cba64873",
+      "source": "N Engl J Med - Enfortumab Vedotin and Pembrolizumab in Cisplatin-Eligible Bladder Cancer (KEYNOTE-B15/EV-304), Figure 1 - Event-free Survival",
+      "traits": [
+        "coloured arm plus neutral arm",
+        "coloured in-plot labels",
+        "dashed reference lines",
+        "no at-risk table"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          5.4,
+          10.8,
+          16.2,
+          21.6,
+          27.0,
+          32.4,
+          37.8,
+          43.2,
+          48.6,
+          54.0
+        ],
+        "survival": [
+          [
+            99.623,
+            95.109,
+            88.044,
+            82.93,
+            80.582,
+            78.399,
+            77.912,
+            75.886,
+            73.956,
+            72.219,
+            null
+          ],
+          [
+            94.509,
+            91.614,
+            77.14,
+            69.325,
+            67.588,
+            65.489,
+            62.86,
+            57.939,
+            57.939,
+            51.86,
+            null
+          ]
+        ],
+        "at_risk_arms": []
+      }
+    },
+    {
+      "id": "libretto-432-event-free-survival",
+      "file": "libretto-432-event-free-survival.png",
+      "sha256": "ae2cf5f9852023c78487fdddc176e82d1cb39cc1e2eaf242b9bffa5b525861d0",
+      "source": "N Engl J Med - Selpercatinib in Early-Stage RET Fusion-Positive Non-Small-Cell Lung Cancer (LIBRETTO-432), Figure 1A - Event-free Survival in the Primary Analysis Population",
+      "traits": [
+        "coloured arm plus neutral arm",
+        "coloured in-plot labels",
+        "long plateaus"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          4.5,
+          9.0,
+          13.5,
+          18.0,
+          22.5,
+          27.0,
+          31.5,
+          36.0,
+          40.5,
+          45.0
+        ],
+        "survival": [
+          [
+            99.506,
+            99.506,
+            97.639,
+            97.616,
+            91.318,
+            91.318,
+            91.318,
+            91.313,
+            81.123,
+            null,
+            null
+          ],
+          [
+            99.808,
+            96.213,
+            88.525,
+            75.631,
+            67.448,
+            60.753,
+            57.123,
+            57.077,
+            48.895,
+            null,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            55,
+            54,
+            47,
+            44,
+            28,
+            27,
+            22,
+            21,
+            16,
+            15,
+            8,
+            6,
+            4,
+            2,
+            0
+          ],
+          [
+            54,
+            49,
+            45,
+            45,
+            37,
+            36,
+            27,
+            27,
+            22,
+            21,
+            15,
+            12,
+            7,
+            0,
+            0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "long-term-crt-d-death-any-cause",
+      "file": "long-term-crt-d-death-any-cause.png",
+      "sha256": "1e842e0e2ee97dbb421abce122a9cce1e25f3e36bbf3f296cc7c5fadf7b520e4",
+      "source": "N Engl J Med - Long-term Resynchronization-Defibrillation Therapy - Death from Any Cause (CRT-D vs ICD)",
+      "traits": [
+        "coloured arm plus black arm",
+        "fractional y axis",
+        "dense at-risk table"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          1.5,
+          3.0,
+          4.5,
+          6.0,
+          7.5,
+          9.0,
+          10.5,
+          12.0,
+          13.5,
+          15.0
+        ],
+        "survival": [
+          [
+            0.993,
+            0.923,
+            0.856,
+            0.774,
+            0.673,
+            0.595,
+            0.493,
+            0.404,
+            0.366,
+            0.305,
+            null
+          ],
+          [
+            0.977,
+            0.903,
+            0.787,
+            0.67,
+            0.579,
+            0.476,
+            0.378,
+            0.307,
+            0.269,
+            0.241,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            530,
+            489,
+            452,
+            408,
+            364,
+            328,
+            294,
+            255,
+            229,
+            191,
+            167,
+            144,
+            134,
+            105,
+            73,
+            49
+          ],
+          [
+            520,
+            495,
+            464,
+            442,
+            415,
+            379,
+            340,
+            310,
+            278,
+            243,
+            213,
+            193,
+            178,
+            139,
+            92,
+            64
+          ]
+        ]
+      }
+    },
+    {
+      "id": "pembrolizumab-vs-observation-dfs",
+      "file": "pembrolizumab-vs-observation-dfs.png",
+      "sha256": "1e514975cb7751341280cb6274efa68eff089ad6dc0f1684fb314d3da62632ff",
+      "source": "N Engl J Med - Disease-free Survival, pembrolizumab vs observation",
+      "traits": [
+        "two distinct colours",
+        "dense censor ticks",
+        "steep early drop",
+        "side statistics table"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 2,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          4.2,
+          8.4,
+          12.6,
+          16.8,
+          21.0,
+          25.2,
+          29.4,
+          33.6,
+          37.8,
+          42.0
+        ],
+        "survival": [
+          [
+            99.344,
+            82.759,
+            70.812,
+            63.222,
+            58.303,
+            54.789,
+            51.978,
+            49.87,
+            47.481,
+            45.091,
+            null
+          ],
+          [
+            99.766,
+            75.31,
+            60.411,
+            52.26,
+            46.075,
+            42.983,
+            41.609,
+            39.61,
+            38.486,
+            35.674,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            354,
+            247,
+            202,
+            174,
+            159,
+            137,
+            114,
+            85
+          ],
+          [
+            348,
+            198,
+            150,
+            124,
+            107,
+            96,
+            81,
+            58
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ras-g12-overall-survival",
+      "file": "ras-g12-overall-survival.png",
+      "sha256": "5ed25951cd40739cc08d1fca0506b5e0ff0feda8899580eb97efed023d234df4",
+      "source": "N Engl J Med, manuscript nejmoa2605555 - Overall Survival in the RAS G12 Population (daraxonrasib vs chemotherapy)",
+      "traits": [
+        "coloured arm plus neutral arm",
+        "coloured in-plot labels",
+        "dashed reference lines",
+        "side statistics table"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          1.6,
+          3.2,
+          4.8,
+          6.4,
+          8.0,
+          9.6,
+          11.2,
+          12.8,
+          14.4,
+          16.0
+        ],
+        "survival": [
+          [
+            99.329,
+            94.62,
+            87.913,
+            82.776,
+            73.929,
+            70.433,
+            66.366,
+            55.95,
+            52.525,
+            45.67,
+            null
+          ],
+          [
+            99.36,
+            90.482,
+            78.924,
+            61.229,
+            53.846,
+            43.107,
+            36.441,
+            24.842,
+            18.29,
+            null,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            228,
+            220,
+            217,
+            206,
+            191,
+            171,
+            150,
+            112,
+            81,
+            57,
+            33,
+            23,
+            7,
+            4,
+            1,
+            0
+          ],
+          [
+            231,
+            214,
+            197,
+            175,
+            144,
+            113,
+            96,
+            69,
+            49,
+            32,
+            19,
+            10,
+            5,
+            2,
+            0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "smoking-cessation-overall-survival",
+      "file": "smoking-cessation-overall-survival.png",
+      "sha256": "002bb3c0049a899995c7407bc68d46a9807ad63de75d78033076a1054665b5e8",
+      "source": "JAMA - Overall Survival Outcomes Associated With Smoking Cessation at 3 Months, Figure 2 (abstinent vs nonabstinent)",
+      "traits": [
+        "two distinct colours",
+        "horizontal gridlines",
+        "dashed reference lines",
+        "marker dots on curves",
+        "sparse at-risk table"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 2,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          1.5,
+          3.0,
+          4.5,
+          6.0,
+          7.5,
+          9.0,
+          10.5,
+          12.0,
+          13.5,
+          15.0
+        ],
+        "survival": [
+          [
+            98.655,
+            90.875,
+            81.177,
+            75.201,
+            70.184,
+            66.35,
+            62.967,
+            60.656,
+            57.16,
+            55.863,
+            null
+          ],
+          [
+            99.895,
+            93.694,
+            84.56,
+            79.027,
+            74.299,
+            70.261,
+            67.477,
+            65.068,
+            62.425,
+            60.43,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            2626,
+            1668,
+            893,
+            326
+          ],
+          [
+            1900,
+            1201,
+            637,
+            208
+          ]
+        ]
+      }
+    },
+    {
+      "id": "tace-progression-free-survival",
+      "file": "tace-progression-free-survival.png",
+      "sha256": "8774c74bc369be90f93655b5b815db9118413f1c25f640d8f265b0c08aad7a40",
+      "source": "Lancet-style two-arm progression-free survival figure, standard group vs experimental group",
+      "traits": [
+        "both arms same colour",
+        "in-plot statistics text",
+        "at-risk table with censoring counts"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 2,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          6.0,
+          12.0,
+          18.0,
+          24.0,
+          30.0,
+          36.0,
+          42.0,
+          48.0,
+          54.0,
+          60.0
+        ],
+        "survival": [
+          [
+            99.495,
+            62.437,
+            28.728,
+            15.329,
+            9.885,
+            9.885,
+            9.885,
+            7.791,
+            7.791,
+            7.791,
+            null
+          ],
+          [
+            96.773,
+            67.461,
+            40.034,
+            18.05,
+            13.865,
+            13.865,
+            13.865,
+            11.56,
+            11.56,
+            11.56,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            51,
+            31,
+            14,
+            14,
+            6,
+            4,
+            4,
+            4,
+            3,
+            3,
+            2,
+            2
+          ],
+          [
+            988,
+            8,
+            5,
+            5,
+            4,
+            4,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "id": "talapro-2-imaging-based-pfs",
+      "file": "talapro-2-imaging-based-pfs.png",
+      "sha256": "7549286bce70d467e035f491b3ecae12a90481ae25f35763602b751c26555dc0",
+      "source": "N Engl J Med - Talazoparib plus Enzalutamide, Intention-to-Treat Population - imaging-based progression-free survival",
+      "traits": [
+        "coloured arm plus neutral arm",
+        "coloured in-plot labels",
+        "side statistics table"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          5.2,
+          10.4,
+          15.6,
+          20.8,
+          26.0,
+          31.2,
+          36.4,
+          41.6,
+          46.8,
+          52.0
+        ],
+        "survival": [
+          [
+            99.915,
+            97.905,
+            93.05,
+            88.678,
+            85.62,
+            81.983,
+            77.678,
+            76.168,
+            70.936,
+            68.786,
+            68.731
+          ],
+          [
+            99.324,
+            94.001,
+            83.356,
+            75.431,
+            69.398,
+            66.087,
+            58.516,
+            58.043,
+            52.247,
+            47.032,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            299,
+            276,
+            243,
+            222,
+            203,
+            188,
+            175,
+            163,
+            151,
+            98,
+            74,
+            32,
+            12,
+            0
+          ]
+        ]
+      }
+    },
+    {
+      "id": "titan-first-subsequent-therapy",
+      "file": "titan-first-subsequent-therapy.png",
+      "sha256": "3f81254c32f9533251dbb70aa32bfc129721ff8c91e643b1a4adf5df098dd3a4",
+      "source": "N Engl J Med, manuscript nejmoa2603878, Figure 2B - First Subsequent Local or Systemic Therapy (ADT plus apalutamide vs ADT plus placebo)",
+      "traits": [
+        "coloured arm plus neutral arm",
+        "confidence bands",
+        "coloured in-plot labels",
+        "dashed reference lines"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          8.4,
+          16.8,
+          25.2,
+          33.6,
+          42.0,
+          50.4,
+          58.8,
+          67.2,
+          75.6,
+          84.0
+        ],
+        "survival": [
+          [
+            99.672,
+            97.564,
+            89.543,
+            80.011,
+            69.898,
+            61.993,
+            61.179,
+            55.483,
+            53.797,
+            49.06,
+            null
+          ],
+          [
+            99.688,
+            95.356,
+            80.476,
+            67.34,
+            56.297,
+            49.903,
+            45.37,
+            43.219,
+            39.208,
+            37.275,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            1057,
+            934,
+            810,
+            651,
+            490,
+            295,
+            68,
+            0
+          ],
+          [
+            1052,
+            907,
+            714,
+            541,
+            410,
+            242,
+            48,
+            0
+          ]
+        ]
+      }
+    }
+  ]
+}

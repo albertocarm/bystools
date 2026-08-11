@@ -21,3 +21,7 @@ _launch.R
 
 # local test plots
 _plots/
+
+# Curve archive: the record in curves/manifest.json is versioned, the published
+# figures it was taken from are held locally (see curves/README.md).
+curves/figures/

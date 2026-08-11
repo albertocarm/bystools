@@ -3,3 +3,5 @@
 ^README\.html$
 ^\.positai$
 ^\.claude$
+^curves$
+^tests$
