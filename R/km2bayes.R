@@ -482,7 +482,7 @@ ui <- shiny::tagList(
         shiny::checkboxInput("shared_shape", "Shared Shape", value = TRUE),
         shiny::selectInput(
           "tail_assumption", "Tail Assumption:",
-          choices = c("neutral", "immature_skeptical", "biologically_null", "supportive", "optimistic"),
+          choices = c("neutral", "immature_skeptical", "biologically_null"),
           selected = "neutral"
         ),
         shiny::checkboxInput("use_historical", "Use Historical Prior", value = FALSE),
@@ -1938,7 +1938,7 @@ server <- function(input, output, session) {
           "<li>Report both efficacy dimensions with high confidence.</li>",
           "<li>Use the <b>Cure Odds Ratio (OR)</b> as the primary endpoint for long-term efficacy.</li>",
           "<li>Use the <b>Time Ratio (TR)</b> to quantify benefit for the non-cured population.</li>",
-          "<li><span style='color: #2E7D32;'><b>Action:</b> 'Tail Assumption' can remain <b>'neutral'</b> or <b>'supportive'</b>.</span></li>",
+          "<li><span style='color: #2E7D32;'><b>Action:</b> 'Tail Assumption' can remain <b>'neutral'</b>.</span></li>",
           "</ul>"
         )
       }
