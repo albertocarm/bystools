@@ -191,7 +191,7 @@ Assess the reliability and maturity of the reconstructed data before modeling:
 Fit Bayesian Weibull mixture cure models to the reconstructed IPD:
 
 - **Configurable MCMC** — iterations, chains, warmup, shared/free shape
-- **Tail assumptions** — neutral, immature skeptical, biologically null, supportive, optimistic
+- **Tail assumptions** — neutral, immature skeptical, biologically null
 - **Historical priors** — optional informative priors with user-defined mean and SD
 - **Posterior densities** — visualize marginal parameter distributions
 - **Correlated densities** — inspect pairwise parameter correlations
