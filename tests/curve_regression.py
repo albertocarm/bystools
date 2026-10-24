@@ -300,6 +300,17 @@ def cmd_update(man, selected):
     return 0
 
 
+def _split_traits(text):
+    """Split the --traits argument into one trait per entry.
+
+    Semicolons take precedence over commas, so a trait may contain a comma
+    ("two arms, teal and navy") without being torn in half.
+    """
+    text = text or ""
+    sep = ";" if ";" in text else ","
+    return [t.strip() for t in text.split(sep) if t.strip()]
+
+
 def cmd_add(man, args):
     if not os.path.exists(args.add):
         print("no such file: %s" % args.add)
@@ -315,7 +326,7 @@ def cmd_add(man, args):
         "file": dest_name,
         "sha256": sha256(os.path.join(FIGURES, dest_name)),
         "source": args.source,
-        "traits": [t.strip() for t in (args.traits or "").split(",") if t.strip()],
+        "traits": _split_traits(args.traits),
         "n_curves": args.n_curves,
         "status": args.status,
     }
@@ -341,7 +352,8 @@ def main():
     ap.add_argument("--add", metavar="FILE", help="add a figure to the archive")
     ap.add_argument("--id", help="archive id for --add (kebab-case)")
     ap.add_argument("--source", default="", help="citation for --add")
-    ap.add_argument("--traits", default="", help="comma-separated traits for --add")
+    ap.add_argument("--traits", default="",
+                    help="traits for --add, separated by ';' (or by ',' if no ';')")
     ap.add_argument("--status", default="known-failure", choices=STATUSES,
                     help="status for --add (default: known-failure)")
     ap.add_argument("--n-curves", type=int, default=2,

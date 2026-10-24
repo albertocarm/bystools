@@ -6,6 +6,90 @@
   },
   "figures": [
     {
+      "id": "interpath-001-rfs-itt-slide",
+      "file": "interpath-001-rfs-itt-slide.png",
+      "sha256": "6c85dda9ea94f384f06bca748473f07e09188961022b27c6668e418f89eb384f",
+      "source": "ESMO Congress 2026, LBA1 INTerpath-001 (Long GV, Presidential Symposium I, 24 Oct 2026) - slide 'Recurrence-Free Survival, ITT Population'; screen capture (1347x722) of the slide image posted on X",
+      "traits": [
+        "two coloured arms: teal experimental and navy control",
+        "solid navy callout panel with white text drawn in the control arm's colour",
+        "in-plot events table with teal and navy text",
+        "coloured 24-month value labels",
+        "dashed vertical reference line at 24 months",
+        "arms cross in the first 6 months",
+        "screen capture of a social-media image"
+      ],
+      "n_curves": 2,
+      "status": "passing",
+      "expect": {
+        "n_curves": 2,
+        "arms_detected": 1,
+        "fit_ok": true,
+        "max_offmask": 0.0,
+        "time_grid": [
+          0.0,
+          3.5,
+          7.0,
+          10.5,
+          14.0,
+          17.5,
+          21.0,
+          24.5,
+          28.0,
+          31.5,
+          35.0
+        ],
+        "survival": [
+          [
+            99.764,
+            93.913,
+            90.459,
+            87.972,
+            85.983,
+            84.491,
+            82.626,
+            82.496,
+            81.781,
+            79.518,
+            null
+          ],
+          [
+            99.909,
+            96.223,
+            89.465,
+            82.875,
+            78.523,
+            75.29,
+            71.979,
+            70.319,
+            69.364,
+            69.085,
+            null
+          ]
+        ],
+        "at_risk_arms": [
+          [
+            757,
+            683,
+            646,
+            618,
+            136,
+            10,
+            0
+          ],
+          [
+            380,
+            341,
+            302,
+            282,
+            72,
+            3,
+            0
+          ]
+        ]
+      }
+    },
+    {
       "id": "keynote-b15-event-free-survival",
       "file": "keynote-b15-event-free-survival.png",
       "sha256": "1537e7ed5ad830f164035c5a1de3f6e9610b46be4f696c41ad3e7841cba64873",

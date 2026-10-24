@@ -504,6 +504,49 @@ def _drop_boxes(mask, span, min_area=200, hole_frac=0.5):
     return out
 
 
+def _drop_filled_panels(mask, span, high, min_area=200, rect_frac=0.85,
+                        min_holes=0.02, max_holes=0.5):
+    """Remove solid-filled rectangular panels (in-plot callouts such as a navy
+    "HR 0.58 (95% CI ...)" box with white text) from a colour mask.
+
+    ``_drop_boxes`` handles hollow frames; a *filled* panel is the opposite case: its
+    outer contour fills its bounding box and the white lettering punches holes in it.
+    Left in, such a panel holds thousands of pixels of an arm's own colour, so it
+    swamps that arm in the colour analysis and its middle is traced as a flat curve.
+
+    A component is dropped only when all of these hold, which no trace of a curve
+    satisfies: it is clearly two-dimensional (at least 5% of the plot wide, 4% of the
+    plot high, and 12 px in both directions) but not near full width (that would be a
+    confidence band spanning the plot); its outer contour fills at least
+    ``rect_frac`` of its bounding box (a rectangle, not a staircase or a band); and
+    it is solid but holed, with holes between ``min_holes`` and ``max_holes`` of the
+    filled contour (the lettering). A translucent band piece has no holes and a
+    hollow frame has more than ``max_holes``, so neither is touched here.
+    """
+    m = mask.astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    out = mask.copy()
+    w_min = max(12, int(0.05 * span))
+    h_min = max(12, int(0.04 * high))
+    for i in range(1, n):
+        area = st[i, cv2.CC_STAT_AREA]
+        w = st[i, cv2.CC_STAT_WIDTH]
+        h = st[i, cv2.CC_STAT_HEIGHT]
+        if area < min_area or w >= 0.6 * span or w < w_min or h < h_min:
+            continue
+        comp = (lab == i).astype(np.uint8)
+        cnts, _ = cv2.findContours(comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        ff = np.zeros_like(comp)
+        cv2.drawContours(ff, cnts, -1, 1, -1)
+        fa = int(ff.sum())
+        if fa == 0 or fa < rect_frac * w * h:
+            continue
+        holes = (fa - area) / fa
+        if min_holes <= holes <= max_holes:
+            out[ff.astype(bool)] = False                    # panel and its lettering
+    return out
+
+
 def neutral_curve_masks(rgb, gray, colorful, interior, txt, box, n_needed):
     """Masks for up to ``n_needed`` near-neutral (grayscale) curves.
 
@@ -984,6 +1027,10 @@ def digitize(path, prefix, n_colors=None, color_tol=20, verbose=True):
     # figure -- and be traced as a spurious curve. Curves survive: they are open
     # paths (their filled contour adds almost nothing) and usually span the plot.
     colorful_arms = _drop_boxes(colorful & interior, max(1, R - L))
+    # Same for solid-filled callout panels (a dark "HR ... (95% CI ...)" box with
+    # white text): drawn in an arm's own colour, they otherwise dominate that colour
+    # and are traced as a flat curve through the panel's middle.
+    colorful_arms = _drop_filled_panels(colorful_arms, max(1, R - L), max(1, B - T))
 
     # This tool supports two-arm studies only. Count the real coloured arms up front
     # so a 3+ arm figure can be rejected by the caller.
