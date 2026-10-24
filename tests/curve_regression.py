@@ -87,13 +87,34 @@ def sha256(path):
 # --------------------------------------------------------------------------- #
 # engine
 # --------------------------------------------------------------------------- #
-def run_engine(image, n_curves=2):
+R_DRIVER = """
+source(file.path(Sys.getenv('KM2_REPO'), 'R', 'km2_digitize_r.R'))
+a <- commandArgs(trailingOnly = TRUE)
+invisible(.km2_digitize_r(a[1], a[2], n_colors = as.integer(a[3])))
+"""
+
+
+def _r_command(image, prefix, n_curves, tmp):
+    """Run the R engine through Rscript, found on PATH or via KM2_RSCRIPT."""
+    drv = os.path.join(tmp, "driver.R")
+    with open(drv, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(R_DRIVER)
+    rscript = os.environ.get("KM2_RSCRIPT") or shutil.which("Rscript") or "Rscript"
+    return [rscript, drv, image, prefix, str(n_curves)]
+
+
+def run_engine(image, n_curves=2, engine="python"):
     """Digitize one figure; return (meta, curves) or raise RuntimeError."""
     tmp = tempfile.mkdtemp(prefix="km2curves_")
     try:
         prefix = os.path.join(tmp, "out")
-        proc = subprocess.run([sys.executable, ENGINE, image, prefix, str(n_curves)],
-                              capture_output=True, text=True)
+        if engine == "r":
+            env = dict(os.environ, KM2_REPO=ROOT)
+            cmd = _r_command(image, prefix, n_curves, tmp)
+            proc = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, env=env)
+        else:
+            proc = subprocess.run([sys.executable, ENGINE, image, prefix, str(n_curves)],
+                                  capture_output=True, text=True)
         meta_path = prefix + "_meta.json"
         if not os.path.exists(meta_path):
             raise RuntimeError((proc.stderr or proc.stdout or "engine produced no output")
@@ -231,7 +252,7 @@ def compare(expect, actual, tol):
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
-def measure(fig):
+def measure(fig, engine="python"):
     """Run one archived figure; returns the summary, or an error/absence marker.
 
     The images are held locally rather than distributed with the repository, so
@@ -242,18 +263,18 @@ def measure(fig):
     if not os.path.exists(path):
         return {"missing": True}
     try:
-        meta, curves = run_engine(path, fig.get("n_curves", 2))
+        meta, curves = run_engine(path, fig.get("n_curves", 2), engine)
     except Exception as exc:                                    # engine crash or no output
         return {"error": str(exc)[:200]}
     grid = (fig.get("expect") or {}).get("time_grid")
     return summarise(meta, curves, grid)
 
 
-def cmd_check(man, selected):
+def cmd_check(man, selected, engine="python"):
     tol = man["tolerance"]
     failures = promotions = absent = 0
     for fig in selected:
-        actual = measure(fig)
+        actual = measure(fig, engine)
         if actual.get("missing"):
             absent += 1
             print("  --   %-38s image not held locally" % fig["id"])
@@ -284,9 +305,9 @@ def cmd_check(man, selected):
     return 1 if failures else 0
 
 
-def cmd_update(man, selected):
+def cmd_update(man, selected, engine="python"):
     for fig in selected:
-        actual = measure(fig)
+        actual = measure(fig, engine)
         if actual.get("missing"):
             print("  skip     %-34s image not held locally" % fig["id"])
             continue
@@ -347,6 +368,8 @@ def cmd_add(man, args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("-k", "--filter", help="only figures whose id contains this text")
+    ap.add_argument("--engine", default="python", choices=("python", "r"),
+                    help="which digitizer to replay the archive through")
     ap.add_argument("--update", action="store_true",
                     help="re-record expectations from the current engine output")
     ap.add_argument("--add", metavar="FILE", help="add a figure to the archive")
@@ -373,8 +396,8 @@ def main():
         print("no figures selected")
         return 0
     if args.update:
-        return cmd_update(man, figs)
-    return cmd_check(man, figs)
+        return cmd_update(man, figs, args.engine)
+    return cmd_check(man, figs, args.engine)
 
 
 if __name__ == "__main__":
