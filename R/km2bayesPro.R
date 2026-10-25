@@ -1355,6 +1355,44 @@ server <- function(input, output, session) {
         )
       }
 
+      # Third check: do the numbers at risk agree with the curves they belong to?
+      # Between two ticks everyone who leaves the risk set is an event or a
+      # censoring, so a curve cannot fall faster than it would if all of them were
+      # events. When it does, the reconstruction resolves the conflict in favour of
+      # the table, trimming events and flattening that arm, and the treatment
+      # effect moves without anything being said. Raising it here lets the user
+      # correct the cell in the grid, which is already editable, before confirming.
+      vals$atrisk_warnings <- NULL
+      tryCatch({
+        tb <- vals$risk_table_editable
+        nmr <- grep("^N_Risk", names(tb), value = TRUE)
+        cur2 <- if (file.exists(csv_file)) utils::read.csv(csv_file) else NULL
+        if (!is.null(cur2) && length(nmr) == 2 &&
+            all(c("x_val", "y_val", "curve") %in% names(cur2))) {
+          cur2 <- cur2[!is.na(cur2$x_val) & !is.na(cur2$y_val) & cur2$x_val >= 0, ]
+          cid <- as.integer(gsub("[^0-9]", "", cur2$curve))
+          ids <- sort(unique(cid))
+          keep <- !is.na(tb[[nmr[1]]]) & !is.na(tb[[nmr[2]]])
+          if (length(ids) == 2 && sum(keep) >= 3) {
+            curves <- lapply(ids, function(i)
+              data.frame(time = cur2$x_val[cid == i], surv = cur2$y_val[cid == i]))
+            rows <- list(tb[[nmr[1]]][keep], tb[[nmr[2]]][keep])
+            rep <- .km2_atrisk_report(curves, tb$Time[keep], rows,
+                                      c("Curve 1", "Curve 2"))
+            if (!isTRUE(rep$ok)) {
+              vals$atrisk_warnings <- rep$messages
+              shiny::showNotification(
+                shiny::HTML(paste0(
+                  "<b>The numbers at risk do not agree with the curves.</b><br>",
+                  paste(rep$messages, collapse = "<br>"),
+                  "<br>Reconstructing from them trims events on that arm and moves ",
+                  "the treatment effect, so correct the grid before confirming.")),
+                type = "warning", duration = NULL)
+            }
+          }
+        }
+      }, error = function(e) NULL)
+
       shiny::removeNotification(id = id_auto)
       n_curves <- tryCatch(as.integer(meta$n_curves), error = function(e) NA)
 
