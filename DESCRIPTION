@@ -29,8 +29,11 @@ Imports:
     ggplot2,
     graphics,
     here,
+    imager,
+    jpeg,
     jsonlite,
     magick,
+    png,
     purrr,
     readxl,
     rhandsontable,
@@ -41,6 +44,7 @@ Imports:
     SurvdigitizeR,
     survival,
     survminer,
+    tesseract,
     tibble,
     writexl
 Suggests:

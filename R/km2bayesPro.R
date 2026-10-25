@@ -1213,41 +1213,31 @@ server <- function(input, output, session) {
     vals$auto_done <- FALSE                      # banner reappears only when this run finishes
     vals$auto_clean_path <- NULL
 
-    # 1. reticulate present?
-    if (!requireNamespace("reticulate", quietly = TRUE)) {
-      show_python_install_modal(reticulate_missing = TRUE)
-      return()
-    }
-    # 2. select a Python interpreter that has the required modules. kmdig.py is run
-    #    as a separate process with this interpreter, independent of the Python the
-    #    R session is bound to.
+    # Locate the Python engine, which is the preferred one. Not finding it no
+    # longer ends the run: the R engine takes over, and the installation help is
+    # offered only if that one cannot produce a result either. What was missing
+    # is remembered so the help can still name it.
+    reticulate_missing <- !requireNamespace("reticulate", quietly = TRUE)
     py <- NULL
-    if (isTRUE(tryCatch(.km2_env_ready("r-bystools"), error = function(e) FALSE))) {
-      py <- .km2_env_python("r-bystools")
-    } else {
-      # dedicated env not ready: check whether the session interpreter has the modules
-      needed <- c("cv2", "numpy", "pytesseract", "sklearn")
-      sess_missing <- tryCatch(
-        needed[!vapply(needed, function(m) reticulate::py_module_available(m), logical(1))],
-        error = function(e) needed
-      )
-      if (length(sess_missing)) {
-        show_python_install_modal(missing_modules = sess_missing, tesseract_missing = TRUE)
-        return()
+    py_missing <- character(0)
+    if (!reticulate_missing) {
+      if (isTRUE(tryCatch(.km2_env_ready("r-bystools"), error = function(e) FALSE))) {
+        py <- .km2_env_python("r-bystools")
+      } else {
+        # dedicated env not ready: check whether the session interpreter has the modules
+        needed <- c("cv2", "numpy", "pytesseract", "sklearn")
+        py_missing <- tryCatch(
+          needed[!vapply(needed, function(m) reticulate::py_module_available(m), logical(1))],
+          error = function(e) needed
+        )
+        if (!length(py_missing)) {
+          py <- tryCatch(reticulate::py_exe(), error = function(e) NULL)
+        }
       }
-      py <- tryCatch(reticulate::py_exe(), error = function(e) NULL)  # session env has them
     }
-    if (is.null(py) || !file.exists(py)) {
-      show_python_install_modal(missing_modules = c("cv2", "numpy", "pytesseract", "sklearn"),
-                                tesseract_missing = TRUE)
-      return()
-    }
-    # 3. script present?
+    if (!is.null(py) && !file.exists(py)) py <- NULL
     script <- kmdig_script_path()
-    if (!nzchar(script)) {
-      shiny::showNotification("kmdig.py not found in the package (inst/python).", type = "error")
-      return()
-    }
+    if (!nzchar(script)) script <- NULL
 
     id_auto <- shiny::showNotification("Auto-cleaning image with the digitizer engine... please wait.", type = "message", duration = NULL)
     tryCatch({
@@ -1256,17 +1246,28 @@ server <- function(input, output, session) {
       # control drives the number of colour clusters, so 3+ arm plots work too.
       ncurves <- tryCatch(max(1L, as.integer(input$man_num_curves)), error = function(e) 2L)
       if (is.na(ncurves)) ncurves <- 2L
-      out <- suppressWarnings(system2(
-        py, args = shQuote(c(script, vals$original_img_path, prefix, as.character(ncurves))),
-        stdout = TRUE, stderr = TRUE
-      ))
-      meta_file <- paste0(prefix, "_meta.json")
+      res <- .km2_digitize_auto(vals$original_img_path, prefix, ncurves, py, script)
+      out <- res$log
+      meta <- res$meta
       clean_png <- paste0(prefix, "_clean.png")
-      if (!file.exists(meta_file)) {
-        # propagate the python error so it can be routed below
+      if (is.null(meta)) {
+        # Neither engine produced a result. If Python was the one that could not
+        # start, say how to install it before reporting the failure.
+        if (reticulate_missing || length(py_missing) || is.null(py)) {
+          shiny::removeNotification(id = id_auto)
+          show_python_install_modal(reticulate_missing = reticulate_missing,
+                                    missing_modules = py_missing,
+                                    tesseract_missing = is.null(py))
+          vals$auto_done <- FALSE; vals$show_fallback <- TRUE
+          return()
+        }
         stop(paste(out, collapse = "\n"))
       }
-      meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
+      if (identical(res$engine, "r")) {
+        shiny::showNotification(
+          "Digitized with the R engine, since the Python one was unavailable or did not trust its own trace. Please check the overlay before confirming.",
+          type = "warning", duration = 14)
+      }
 
       # Two-arm studies only: reject 3+ arm figures up front.
       if (isTRUE(meta$too_many_arms)) {

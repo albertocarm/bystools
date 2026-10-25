@@ -98,7 +98,11 @@
   im <- imager::as.cimg(t(mask) * 1)                      # cimg is (x, y)
   lb <- imager::label(im, high_connectivity = TRUE)
   labels <- t(matrix(as.numeric(lb), nrow = ncol(mask), ncol = nrow(mask)))
-  labels[!mask] <- 0                                      # label() also numbers the background
+  # label() numbers from zero and numbers the background too, so a genuine
+  # component can carry the same id as background. Shift before clearing it,
+  # or that component's id selects every background pixel as well.
+  labels <- labels + 1
+  labels[!mask] <- 0
   id <- labels[mask]
   if (!length(id)) return(list(labels = labels, stats = NULL))
   idx <- which(mask, arr.ind = TRUE)
